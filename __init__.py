@@ -17,6 +17,7 @@ from .backend.gpu_monitor import poll_gpu_metrics
 from .backend.nodes.cooldown import SmartCooldownNode
 from .backend.persistence import init_db
 from .backend.queue_middleware import create_queue_middleware
+from .backend.queue_tracker import sync_queue_tracker
 from .backend.routes import register_routes
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
 _autopilot_state = AutopilotState()
 _autopilot_settings = AutopilotSettings()
+_seen_running: set = set()
+_seen_completed: set = set()
 
 TICK_INTERVAL_SECONDS = 5.0
 
@@ -42,10 +45,25 @@ async def _async_poll_gpu_metrics():
     return await asyncio.to_thread(poll_gpu_metrics)
 
 
-async def _autopilot_background_loop():
+def _sync_queue_tracker_tick(conn) -> None:
+    global _seen_running, _seen_completed
+    running, queued = _server.prompt_queue.get_current_queue_volatile()
+    history = _server.prompt_queue.get_history()
+    _seen_running, _seen_completed = sync_queue_tracker(
+        conn, running, queued, history, _autopilot_state, _seen_running, _seen_completed
+    )
+
+
+async def _autopilot_background_loop(conn):
     while True:
         if _autopilot_settings.master_enabled:
             await run_autopilot_tick(_autopilot_state, _autopilot_settings, _async_poll_gpu_metrics)
+        try:
+            # Sync sqlite3 connections are bound to the thread that created them
+            # (this loop's thread), so this must run inline, not via asyncio.to_thread.
+            _sync_queue_tracker_tick(conn)
+        except Exception:
+            logger.warning("Smart Queue: queue tracker sync failed, skipping this tick", exc_info=True)
         await asyncio.sleep(TICK_INTERVAL_SECONDS)
 
 
@@ -62,7 +80,7 @@ if _HAS_COMFY_SERVER:
     register_routes(_server.app, _conn, _autopilot_state, _autopilot_settings)
 
     async def _start_autopilot_loop(app):
-        app["smart_queue_autopilot_task"] = asyncio.create_task(_autopilot_background_loop())
+        app["smart_queue_autopilot_task"] = asyncio.create_task(_autopilot_background_loop(_conn))
 
     _server.app.on_startup.append(_start_autopilot_loop)
 
