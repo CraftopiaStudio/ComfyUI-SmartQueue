@@ -1,6 +1,6 @@
 # Smart Queue — Design Spec
 
-Status: v1 fully implemented and manually verified against a running ComfyUI instance (Tasks 1-9 automated, 70 tests green; Task 10 UI verified — panel, settings sync, Crystools detection, theme, manual pause, Nodes 2.0 toggle on/off; Task 11 node-notification checks verified — sound, toast, fallback, wait-for-click, unload-before-wait; see §13). Remaining: delete `rubz-gpu-cooldown.disabled` per §10.
+Status: v1 fully implemented and manually verified against a running ComfyUI instance (Tasks 1-9 automated, 70 tests green; Task 10 UI verified — panel, settings sync, Crystools detection, theme, manual pause, Nodes 2.0 toggle on/off; Task 11 node-notification checks verified — sound, toast, fallback, wait-for-click, unload-before-wait; see §13). `rubz-gpu-cooldown.disabled` deleted per §10 — this plan is complete.
 Date: 2026-08-29
 Repo: `comfyui-smart-queue` (D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\comfyui-smart-queue)
 GitHub: `github.com/CraftopiaStudio/comfyui-smart-queue` (alongside ComfyUI-WorkflowOrganizer and CraftKit)

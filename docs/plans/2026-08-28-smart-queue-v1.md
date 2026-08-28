@@ -1751,8 +1751,7 @@ see Task 11 Step 2) was found and fixed during this pass, then all 5
 manual checks (sound, fallback, toast, wait-for-click, unload-before-wait)
 passed against the live instance. See spec §13 for full detail.
 
-**Remaining before this plan is fully closed out:** delete the
-`rubz-gpu-cooldown.disabled` folder (kept only as a safety net per spec
-§10 — everything it did now lives in this pack, verified working).
+`rubz-gpu-cooldown.disabled` has now been deleted per spec §10 — everything
+it did lives in this pack, verified working. Plan fully closed out.
 
 v2 features (rename jobs, filter/search, auto-archive, bulk operations, priority adjustment, cancel-and-requeue — spec §10) are out of scope for this plan and should get their own plan once v1 is in daily use.
