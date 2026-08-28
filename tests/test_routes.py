@@ -4,6 +4,7 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 from backend.persistence import init_db, add_queue_item
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
+from backend.continue_registry import wait_for_continue
 from backend.routes import register_routes
 
 
@@ -67,3 +68,24 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert resp.status == 200
         assert self.settings.pause_temp_c == 90.0
         assert self.settings.master_enabled is False
+
+    @unittest_run_loop
+    async def test_continue_signals_a_waiting_node(self):
+        import asyncio
+
+        prompt_id = "test-prompt-id"
+        released = {"done": False}
+
+        async def waiter():
+            await asyncio.to_thread(wait_for_continue, prompt_id)
+            released["done"] = True
+
+        wait_task = asyncio.ensure_future(waiter())
+        await asyncio.sleep(0.05)
+        assert released["done"] is False
+
+        resp = await self.client.post(f"/smart_queue/continue/{prompt_id}")
+        assert resp.status == 200
+
+        await asyncio.wait_for(wait_task, timeout=2.0)
+        assert released["done"] is True

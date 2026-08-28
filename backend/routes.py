@@ -8,6 +8,7 @@ from aiohttp import web
 
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
+from .continue_registry import signal_continue
 from .persistence import list_history, list_queue_items, reorder_queue_items
 
 
@@ -39,9 +40,15 @@ def register_routes(
         settings.update_from_dict(payload)
         return web.json_response({"ok": True})
 
+    async def post_continue(request: web.Request) -> web.Response:
+        prompt_id = request.match_info["prompt_id"]
+        signal_continue(prompt_id)
+        return web.json_response({"ok": True})
+
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)
     app.router.add_post("/smart_queue/reorder", post_reorder)
     app.router.add_get("/smart_queue/history", get_history)
     app.router.add_get("/smart_queue/settings", get_settings)
     app.router.add_post("/smart_queue/settings", post_settings)
+    app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
