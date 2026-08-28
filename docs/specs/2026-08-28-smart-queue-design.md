@@ -1,6 +1,6 @@
 # Smart Queue — Design Spec
 
-Status: Draft, awaiting user review
+Status: v1 implemented (Tasks 1-9 automated, all tests green; Tasks 10-11 frontend/UI still need manual verification against a running ComfyUI instance per spec §9)
 Date: 2026-08-28
 Repo: `comfyui-smart-queue` (D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\comfyui-smart-queue)
 GitHub: `github.com/CraftopiaStudio/comfyui-smart-queue` (alongside ComfyUI-WorkflowOrganizer and CraftKit)
