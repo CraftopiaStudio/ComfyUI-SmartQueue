@@ -3,6 +3,7 @@
 Status: Draft, awaiting user review
 Date: 2026-08-28
 Repo: `comfyui-smart-queue` (D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\comfyui-smart-queue)
+GitHub: `github.com/CraftopiaStudio/comfyui-smart-queue` (alongside ComfyUI-WorkflowOrganizer and CraftKit)
 Display name: **Smart Queue**
 
 ## 1. Motivation
