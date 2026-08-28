@@ -8,6 +8,7 @@ class AutopilotState:
         self.is_paused: bool = False
         self.jobs_since_resume: int = 0
         self.last_reasons: tuple[str, ...] = ()
+        self.manual_paused: bool = False
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused
@@ -18,3 +19,18 @@ class AutopilotState:
 
     def record_job_started(self) -> None:
         self.jobs_since_resume += 1
+
+    def set_manual_pause(self, paused: bool) -> None:
+        self.manual_paused = paused
+
+    @property
+    def effective_paused(self) -> bool:
+        """What the middleware actually gates on: autopilot OR a manual pause."""
+        return self.is_paused or self.manual_paused
+
+    @property
+    def effective_reasons(self) -> tuple[str, ...]:
+        reasons = self.last_reasons
+        if self.manual_paused:
+            reasons = ("Manually paused",) + reasons
+        return reasons

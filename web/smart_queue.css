@@ -1,15 +1,62 @@
 #smart-queue-panel {
     background: var(--comfy-menu-bg, var(--p-content-background, #202020));
     color: var(--fg-color, var(--p-text-color, #ddd));
-    border: 1px solid var(--border-color, var(--p-content-border-color, #444));
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-size: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    height: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+    /* Some third-party extensions render position:fixed floating toolbars near
+       the canvas top-left that can coincidentally overlap the sidebar area
+       (e.g. node-alignment helper tools). Keep our own controls clickable. */
+    position: relative;
+    z-index: 1100;
+}
+
+#smart-queue-panel .smart-queue-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
 #smart-queue-panel .smart-queue-status {
     font-weight: 600;
-    margin-bottom: 6px;
+}
+
+#smart-queue-panel .smart-queue-status.smart-queue-paused {
+    color: var(--error-text, #e06c75);
+}
+
+#smart-queue-panel .smart-queue-pause-btn {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, var(--p-content-border-color, #444));
+    background: var(--comfy-input-bg, #333);
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+#smart-queue-panel .smart-queue-pause-btn-active {
+    background: var(--error-text, #e06c75);
+    color: #fff;
+    border-color: var(--error-text, #e06c75);
+}
+
+#smart-queue-panel .smart-queue-gpu-readout {
+    margin-bottom: 8px;
+    opacity: 0.8;
+    font-size: 12px;
+}
+
+#smart-queue-panel .smart-queue-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin: 10px 0 4px;
 }
 
 #smart-queue-panel .smart-queue-list {
@@ -22,6 +69,43 @@
     padding: 4px 6px;
     border-bottom: 1px solid var(--border-color, var(--p-content-border-color, #444));
     cursor: grab;
+}
+
+#smart-queue-panel .smart-queue-history li {
+    cursor: default;
+    opacity: 0.8;
+}
+
+#smart-queue-panel .smart-queue-empty {
+    opacity: 0.5;
+    font-style: italic;
+    cursor: default;
+}
+
+.smart-queue-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0 4px;
+    border: none;
+    border-radius: 6px;
+    background: var(--comfy-input-bg, #333);
+    color: var(--fg-color, var(--p-text-color, #ddd));
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.smart-queue-toolbar-btn:hover {
+    filter: brightness(1.15);
+}
+
+.smart-queue-toolbar-btn-paused {
+    background: var(--error-text, #e06c75);
+    color: #fff;
 }
 
 .smart-queue-continue-overlay {

@@ -70,6 +70,24 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert self.settings.master_enabled is False
 
     @unittest_run_loop
+    async def test_manual_pause_sets_state_and_reflects_in_status(self):
+        resp = await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+        assert resp.status == 200
+        assert self.state.manual_paused is True
+
+        status_resp = await self.client.get("/smart_queue/status")
+        body = await status_resp.json()
+        assert body["is_paused"] is True
+        assert "Manually paused" in body["reasons"]
+
+    @unittest_run_loop
+    async def test_manual_resume_clears_manual_pause(self):
+        self.state.set_manual_pause(True)
+        resp = await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+        assert resp.status == 200
+        assert self.state.manual_paused is False
+
+    @unittest_run_loop
     async def test_continue_signals_a_waiting_node(self):
         import asyncio
 

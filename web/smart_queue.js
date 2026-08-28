@@ -53,6 +53,14 @@ app.registerExtension({
         },
     ],
     async setup() {
+        if (!document.getElementById("smart-queue-stylesheet")) {
+            const link = document.createElement("link");
+            link.id = "smart-queue-stylesheet";
+            link.rel = "stylesheet";
+            link.href = new URL("smart_queue.css", import.meta.url).href;
+            document.head.appendChild(link);
+        }
+
         async function syncSettingsToBackend() {
             const payload = {
                 master_enabled: app.extensionManager.setting.get("SmartQueue.EnableAutopilot"),
@@ -86,53 +94,171 @@ app.registerExtension({
 
         const hasCrystools = app.extensions?.some((ext) => ext.name?.toLowerCase().includes("crystools"));
 
-        const panel = document.createElement("div");
-        panel.id = "smart-queue-panel";
-        panel.innerHTML = `
-            <div class="smart-queue-status">Smart Queue: idle</div>
-            ${hasCrystools ? "" : '<div class="smart-queue-gpu-readout"></div>'}
-            <ul class="smart-queue-list" id="smart-queue-list"></ul>
-        `;
+        // A small square icon button inserted as a real sibling next to
+        // ComfyUI's own Run button group, matching the size/style of its
+        // "Cancel current run" button. Because it's a genuine DOM child of
+        // that flex row (not a position:fixed overlay with guessed pixel
+        // coordinates), the browser's own flex layout makes room for it —
+        // no manual placement math, and nothing gets covered.
+        // Risk: that row is Vue-managed, so a re-render could in principle
+        // drop this manually-inserted node; a periodic check re-inserts it
+        // if that ever happens.
+        let manualPaused = false;
 
-        const sidebar = document.querySelector(".comfyui-body-bottom") || document.querySelector(".comfy-menu");
-        if (sidebar) {
-            sidebar.appendChild(panel);
+        function findToolbarRow() {
+            const toggle = document.querySelector('[data-testid="queue-overlay-toggle"]');
+            return toggle ? toggle.parentElement : null;
         }
 
-        async function refreshStatus() {
+        function ensureToolbarPauseButton() {
+            const row = findToolbarRow();
+            if (!row) return null;
+
+            let btn = document.getElementById("smart-queue-toolbar-btn");
+            if (btn && row.contains(btn)) return btn;
+
+            btn = document.createElement("button");
+            btn.id = "smart-queue-toolbar-btn";
+            btn.className = "smart-queue-toolbar-btn";
+            btn.setAttribute("aria-label", "Pause queue (Smart Queue)");
+            btn.setAttribute("data-pd-tooltip", "true");
+            btn.title = "Pause queue (Smart Queue)";
+            btn.textContent = "⏸";
+
+            btn.addEventListener("click", async () => {
+                manualPaused = !manualPaused;
+                try {
+                    await fetch("/smart_queue/manual_pause", {
+                        method: "POST",
+                        body: JSON.stringify({ paused: manualPaused }),
+                        headers: { "Content-Type": "application/json" },
+                    });
+                } catch (err) {
+                    console.error("[Smart Queue] manual pause toggle failed:", err);
+                }
+                await refreshToolbarButton();
+            });
+
+            // Inserted right after the batch-count/Run button group (the
+            // row's first child) so it reads as "next to Run".
+            const runGroup = row.children[0];
+            if (runGroup && runGroup.nextSibling) {
+                row.insertBefore(btn, runGroup.nextSibling);
+            } else {
+                row.insertBefore(btn, row.firstChild);
+            }
+            return btn;
+        }
+
+        async function refreshToolbarButton() {
+            const btn = ensureToolbarPauseButton();
+            if (!btn) return;
             try {
                 const res = await fetch("/smart_queue/status");
                 const data = await res.json();
-                const statusEl = panel.querySelector(".smart-queue-status");
-                statusEl.textContent = data.is_paused
-                    ? `Smart Queue: paused — ${data.reasons.join("; ")}`
-                    : "Smart Queue: running";
+                manualPaused = data.manual_paused;
+                btn.textContent = manualPaused ? "▶" : "⏸";
+                btn.title = data.is_paused
+                    ? `Paused — ${data.reasons.join("; ")}. Click to resume.`
+                    : "Pause queue (Smart Queue)";
+                btn.classList.toggle("smart-queue-toolbar-btn-paused", data.is_paused);
             } catch (err) {
                 console.error("[Smart Queue] status fetch failed:", err);
             }
         }
 
-        async function refreshQueueList() {
-            try {
-                const res = await fetch("/smart_queue/queue");
-                const data = await res.json();
-                const listEl = panel.querySelector("#smart-queue-list");
-                listEl.innerHTML = "";
-                for (const item of data.items) {
-                    const li = document.createElement("li");
-                    li.draggable = true;
-                    li.dataset.promptId = item.prompt_id;
-                    li.textContent = item.name;
-                    listEl.appendChild(li);
-                }
-            } catch (err) {
-                console.error("[Smart Queue] queue fetch failed:", err);
-            }
-        }
+        setInterval(refreshToolbarButton, 3000);
+        refreshToolbarButton();
 
-        setInterval(refreshStatus, 3000);
-        setInterval(refreshQueueList, 5000);
-        await refreshStatus();
-        await refreshQueueList();
+        app.extensionManager.registerSidebarTab({
+            id: "smart-queue",
+            icon: "pi pi-pause-circle",
+            title: "Smart Queue",
+            tooltip: "Smart Queue: GPU autopilot + render queue",
+            type: "custom",
+            render: (el) => {
+                el.innerHTML = `
+                    <div id="smart-queue-panel">
+                        <div class="smart-queue-status-row">
+                            <div class="smart-queue-status">Smart Queue: idle</div>
+                        </div>
+                        ${hasCrystools ? "" : '<div class="smart-queue-gpu-readout"></div>'}
+                        <div class="smart-queue-section-title">Pending / running</div>
+                        <ul class="smart-queue-list" id="smart-queue-list"></ul>
+                        <div class="smart-queue-section-title">History</div>
+                        <ul class="smart-queue-list smart-queue-history" id="smart-queue-history"></ul>
+                    </div>
+                `;
+
+                const panel = el.querySelector("#smart-queue-panel");
+
+                async function refreshStatus() {
+                    try {
+                        const res = await fetch("/smart_queue/status");
+                        const data = await res.json();
+                        const statusEl = panel.querySelector(".smart-queue-status");
+                        statusEl.textContent = data.is_paused
+                            ? `Paused — ${data.reasons.join("; ")}`
+                            : "Running";
+                        statusEl.classList.toggle("smart-queue-paused", data.is_paused);
+                    } catch (err) {
+                        console.error("[Smart Queue] status fetch failed:", err);
+                    }
+                }
+
+                async function refreshQueueList() {
+                    try {
+                        const res = await fetch("/smart_queue/queue");
+                        const data = await res.json();
+                        const listEl = panel.querySelector("#smart-queue-list");
+                        listEl.innerHTML = "";
+                        if (data.items.length === 0) {
+                            listEl.innerHTML = '<li class="smart-queue-empty">Nothing queued</li>';
+                        }
+                        for (const item of data.items) {
+                            const li = document.createElement("li");
+                            li.draggable = true;
+                            li.dataset.promptId = item.prompt_id;
+                            li.textContent = item.name;
+                            listEl.appendChild(li);
+                        }
+                    } catch (err) {
+                        console.error("[Smart Queue] queue fetch failed:", err);
+                    }
+                }
+
+                async function refreshHistory() {
+                    try {
+                        const res = await fetch("/smart_queue/history");
+                        const data = await res.json();
+                        const listEl = panel.querySelector("#smart-queue-history");
+                        listEl.innerHTML = "";
+                        if (data.items.length === 0) {
+                            listEl.innerHTML = '<li class="smart-queue-empty">No history yet</li>';
+                        }
+                        for (const item of data.items) {
+                            const li = document.createElement("li");
+                            li.textContent = item.name;
+                            listEl.appendChild(li);
+                        }
+                    } catch (err) {
+                        console.error("[Smart Queue] history fetch failed:", err);
+                    }
+                }
+
+                const statusTimer = setInterval(refreshStatus, 3000);
+                const queueTimer = setInterval(refreshQueueList, 5000);
+                const historyTimer = setInterval(refreshHistory, 5000);
+                refreshStatus();
+                refreshQueueList();
+                refreshHistory();
+
+                return () => {
+                    clearInterval(statusTimer);
+                    clearInterval(queueTimer);
+                    clearInterval(historyTimer);
+                };
+            },
+        });
     },
 });

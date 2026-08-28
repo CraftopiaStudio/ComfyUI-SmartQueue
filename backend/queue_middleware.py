@@ -10,8 +10,8 @@ from .autopilot_state import AutopilotState
 def create_queue_middleware(state: AutopilotState, is_enabled: Callable[[], bool]):
     @web.middleware
     async def queue_middleware(request: web.Request, handler):
-        if is_enabled() and state.is_paused and request.path == "/prompt" and request.method == "POST":
-            reason = "; ".join(state.last_reasons) or "Queue paused"
+        if is_enabled() and state.effective_paused and request.path == "/prompt" and request.method == "POST":
+            reason = "; ".join(state.effective_reasons) or "Queue paused"
             return web.json_response({"error": f"Queue paused: {reason}"}, status=423)
         return await handler(request)
 

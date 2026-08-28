@@ -43,6 +43,20 @@ class TestQueueMiddlewareBlocking(AioHTTPTestCase):
         assert "GPU too hot" in body["error"]
 
 
+class TestQueueMiddlewareManualPause(AioHTTPTestCase):
+    async def get_application(self):
+        self.state = AutopilotState()
+        self.state.set_manual_pause(True)
+        return await _make_app(self.state, enabled=True)
+
+    @unittest_run_loop
+    async def test_blocks_with_423_when_manually_paused_even_without_autopilot_decision(self):
+        resp = await self.client.post("/prompt", json={})
+        assert resp.status == 423
+        body = await resp.json()
+        assert "Manually paused" in body["error"]
+
+
 class TestQueueMiddlewareDisabled(AioHTTPTestCase):
     async def get_application(self):
         self.state = AutopilotState()

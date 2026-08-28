@@ -19,7 +19,17 @@ def register_routes(
     settings: AutopilotSettings,
 ) -> None:
     async def get_status(request: web.Request) -> web.Response:
-        return web.json_response({"is_paused": state.is_paused, "reasons": list(state.last_reasons)})
+        return web.json_response({
+            "is_paused": state.effective_paused,
+            "reasons": list(state.effective_reasons),
+            "manual_paused": state.manual_paused,
+            "autopilot_paused": state.is_paused,
+        })
+
+    async def post_manual_pause(request: web.Request) -> web.Response:
+        payload = await request.json()
+        state.set_manual_pause(bool(payload.get("paused", True)))
+        return web.json_response({"ok": True, "manual_paused": state.manual_paused})
 
     async def get_queue(request: web.Request) -> web.Response:
         return web.json_response({"items": list_queue_items(conn)})
@@ -52,3 +62,4 @@ def register_routes(
     app.router.add_get("/smart_queue/settings", get_settings)
     app.router.add_post("/smart_queue/settings", post_settings)
     app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
+    app.router.add_post("/smart_queue/manual_pause", post_manual_pause)

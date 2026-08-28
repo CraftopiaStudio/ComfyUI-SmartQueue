@@ -1,7 +1,7 @@
 # Smart Queue — Design Spec
 
-Status: v1 implemented (Tasks 1-9 automated, all tests green; Tasks 10-11 frontend/UI still need manual verification against a running ComfyUI instance per spec §9)
-Date: 2026-08-28
+Status: v1 implemented and manually verified against a running ComfyUI instance (Tasks 1-9 automated, 70 tests green; Task 10 UI verified — panel, settings sync, Crystools detection, theme, manual pause; Task 11 node-notification checks pending, blocked on the `rubz-gpu-cooldown` name collision, see §13)
+Date: 2026-08-29
 Repo: `comfyui-smart-queue` (D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\comfyui-smart-queue)
 GitHub: `github.com/CraftopiaStudio/comfyui-smart-queue` (alongside ComfyUI-WorkflowOrganizer and CraftKit)
 Display name: **Smart Queue**
@@ -268,3 +268,51 @@ then purely as a safety net, not because it's still in use.
 - Hard dependency on Crystools for GPU data — Smart Queue always polls its
   own GPU metrics independently; Crystools detection (§6) only affects
   what's *displayed*, never the autopilot logic itself.
+
+## 13. Manual verification findings (2026-08-29)
+
+Live-tested against a running ComfyUI instance (Task 10 acceptance criteria,
+§9). Confirmed working: settings panel + defaults, `/smart_queue/settings`
+sync, Crystools GPU-readout suppression, theme-aware panel styling, queue and
+history persistence including the fast-job edge case, and manual pause/resume
+gating the middleware. Four real gaps were found this way — none caught by
+the unit tests, since each was an integration/wiring gap, not a rule-engine
+bug:
+
+- **Queue/history were never populated.** `add_queue_item` /
+  `mark_completed` / `record_job_started` existed only in tests — nothing in
+  `__init__.py` ever called them. Fixed by `backend/queue_tracker.py`
+  (Section 5-adjacent, read-only against `PromptServer.instance.prompt_queue`
+  via `get_current_queue_volatile()`/`get_history()`), ticked from the same
+  background loop as the autopilot poll. Handles the case of a job that
+  starts and finishes inside one tick gap (never observed "running") by
+  reading it retroactively from the history entry.
+- **`web/smart_queue.css` was never linked into the page.** The panel ran on
+  browser-default styling. Fixed with a `<link>` injected in `setup()`.
+- **No manual pause/resume existed**, despite §6 requiring one. Added
+  `AutopilotState.manual_paused` / `effective_paused` / `effective_reasons`,
+  `POST /smart_queue/manual_pause`, and the middleware now gates on
+  `effective_paused` (autopilot OR manual).
+- **UI placement for the manual-pause control took three iterations** before
+  landing: (1) inside the sidebar tab — blocked by an unrelated installed
+  extension's `position:fixed` overlay (`hNodeAlignKit` / "NodeAlignPro")
+  sitting in a higher ancestor stacking context that a child `z-index` can't
+  escape; (2) anchored beside ComfyUI's own Job Queue toggle button — the top
+  toolbar has zero free space at any window width once other extensions'
+  icons are accounted for, verified by measurement (a wide 1600px window
+  still had only ~34px free, not enough for a labeled button). Landed on: a
+  small icon-only square button (`.smart-queue-toolbar-btn`, matching the
+  native "Cancel current run" button's size) inserted as a real DOM sibling
+  inside ComfyUI's own button-group flex row, right after the batch-count/Run
+  group — letting the browser's own flex layout make room instead of
+  computing pixel offsets. A periodic re-insert check guards against Vue
+  dropping the manually-inserted node on re-render.
+- **Blocked**: Task 11's node-notification checks (sound/toast/continue
+  button) could not be run — `RubzGpuCooldownNode` is registered by *both*
+  packages, and `rubz-gpu-cooldown` (old, V1-schema) wins over
+  `comfyui-smart-queue`'s new V3 node because it loads later alphabetically,
+  shadowing the new node's `NODE_CLASS_MAPPINGS` entry entirely. Confirmed via
+  `GET /object_info/RubzGpuCooldownNode` → `python_module:
+  custom_nodes.rubz-gpu-cooldown`. The old folder was renamed to
+  `rubz-gpu-cooldown.disabled` (ComfyUI's standard disable convention, fully
+  reversible) rather than deleted, pending the next verification pass.

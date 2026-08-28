@@ -1,6 +1,6 @@
 # Smart Queue v1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build v1 of Smart Queue — a ComfyUI custom node pack combining (a) a queue-level "autopilot" that pauses/resumes the render queue based on live GPU temperature/VRAM/job-count, and (b) a consolidated "Smart Cooldown & Pause" in-graph node that folds in cooldown timing, GPU temp waiting, manual pause, notifications, and model unloading.
 
@@ -68,7 +68,7 @@ comfyui-smart-queue/
 **Interfaces:**
 - Produces: `GpuMetrics` dataclass with fields `temp_c: float | None`, `vram_used_mb: float | None`, `vram_total_mb: float | None`, `util_pct: float | None`, and a `vram_free_mb` property. `poll_gpu_metrics(timeout: float = 5.0) -> GpuMetrics`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_gpu_monitor.py
@@ -123,12 +123,12 @@ def test_poll_returns_all_none_on_timeout(mock_run):
     assert metrics.temp_c is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_gpu_monitor.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/gpu_monitor.py
@@ -182,12 +182,12 @@ def poll_gpu_metrics(timeout: float = 5.0) -> GpuMetrics:
         return _EMPTY
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_gpu_monitor.py -v`
 Expected: 6 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/__init__.py backend/gpu_monitor.py tests/test_gpu_monitor.py
@@ -206,7 +206,7 @@ git commit -m "Add GPU metrics polling via nvidia-smi"
 - Consumes: `GpuMetrics` from Task 1 (`backend.gpu_monitor`).
 - Produces: `AutopilotSettings` dataclass, `Decision` dataclass (`should_pause: bool`, `reasons: tuple[str, ...]`), and `evaluate(metrics: GpuMetrics, jobs_since_resume: int, currently_paused: bool, settings: AutopilotSettings) -> Decision`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_autopilot.py
@@ -306,12 +306,12 @@ def test_multiple_reasons_all_reported():
     assert len(decision.reasons) == 2
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_autopilot.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.autopilot'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/autopilot.py
@@ -380,12 +380,12 @@ def evaluate(
     return Decision(should_pause=len(reasons) > 0, reasons=tuple(reasons))
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_autopilot.py -v`
 Expected: 12 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/autopilot.py tests/test_autopilot.py
@@ -404,7 +404,7 @@ git commit -m "Add autopilot rule engine as a pure, testable function"
 - Consumes: `Decision` from Task 2 (`backend.autopilot`).
 - Produces: `AutopilotState` class with `is_paused: bool`, `jobs_since_resume: int`, `last_reasons: tuple[str, ...]` attributes, and a method `apply(decision: Decision) -> None` that mutates state (resets `jobs_since_resume` to 0 on transition from paused to resumed) plus a method `record_job_started() -> None` that increments `jobs_since_resume`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_autopilot_state.py
@@ -449,12 +449,12 @@ def test_apply_resume_when_already_resumed_does_not_reset_counter():
     assert state.jobs_since_resume == 1
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_autopilot_state.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.autopilot_state'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/autopilot_state.py
@@ -480,12 +480,12 @@ class AutopilotState:
         self.jobs_since_resume += 1
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_autopilot_state.py -v`
 Expected: 5 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/autopilot_state.py tests/test_autopilot_state.py
@@ -503,7 +503,7 @@ git commit -m "Add autopilot state machine with job-counter reset on resume"
 **Interfaces:**
 - Produces: `init_db(db_path: str) -> sqlite3.Connection`, `add_queue_item(conn, prompt_id: str, name: str) -> int`, `list_queue_items(conn) -> list[dict]`, `reorder_queue_items(conn, ordered_prompt_ids: list[str]) -> None`, `remove_queue_item(conn, prompt_id: str) -> None`, `mark_completed(conn, prompt_id: str, thumbnail_path: str | None = None) -> None`, `list_history(conn, limit: int = 50) -> list[dict]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_persistence.py
@@ -573,12 +573,12 @@ def test_persistence_survives_reopening_the_same_file(tmp_path):
     assert items[0]["prompt_id"] == "a"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_persistence.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.persistence'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/persistence.py
@@ -659,12 +659,12 @@ def list_history(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_persistence.py -v`
 Expected: 6 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/persistence.py tests/test_persistence.py
@@ -683,7 +683,7 @@ git commit -m "Add SQLite persistence for queue order and history"
 - Consumes: `AutopilotState` from Task 3 (reads `.is_paused` and `.last_reasons`).
 - Produces: `create_queue_middleware(state: AutopilotState, is_enabled: Callable[[], bool]) -> Callable` — an aiohttp middleware factory.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_queue_middleware.py
@@ -744,12 +744,12 @@ class TestQueueMiddlewareDisabled(AioHTTPTestCase):
         assert resp.status == 200
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_queue_middleware.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.queue_middleware'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/queue_middleware.py
@@ -773,12 +773,12 @@ def create_queue_middleware(state: AutopilotState, is_enabled: Callable[[], bool
     return queue_middleware
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_queue_middleware.py -v`
 Expected: 3 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/queue_middleware.py tests/test_queue_middleware.py
@@ -797,7 +797,7 @@ git commit -m "Add non-intrusive middleware that gates /prompt while paused"
 - Consumes: `poll_gpu_metrics` (Task 1, injected as a callable so tests can fake it), `evaluate` (Task 2), `AutopilotState` (Task 3), `AutopilotSettings` (Task 2).
 - Produces: `async def run_autopilot_tick(state: AutopilotState, settings: AutopilotSettings, metrics_provider: Callable[[], GpuMetrics]) -> None` — runs exactly one poll-evaluate-apply cycle, fail-open on any exception from `metrics_provider`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_autopilot_loop.py
@@ -845,14 +845,14 @@ async def test_tick_fails_open_when_metrics_provider_raises():
     assert state.is_paused is False
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_autopilot_loop.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.autopilot_loop'`
 
 (Note: this task needs `pytest-asyncio`. Add it to CI in Step 5 alongside the commit — see the CI update below.)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/autopilot_loop.py
@@ -894,12 +894,12 @@ async def run_autopilot_tick(
     state.apply(decision)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pip install pytest-asyncio && pytest tests/test_autopilot_loop.py -v`
 Expected: 3 passed
 
-- [ ] **Step 5: Update CI to install pytest-asyncio, then commit**
+- [x] **Step 5: Update CI to install pytest-asyncio, then commit**
 
 ```yaml
 # .github/workflows/ci.yml — change the "pip install pytest" line to:
@@ -932,7 +932,7 @@ git commit -m "Add background autopilot polling tick with fail-open error handli
 - Consumes: `poll_gpu_metrics` from Task 1.
 - Produces: `SmartCooldownNode` class (V3 schema, node type ID `RubzGpuCooldownNode`) and a plain function `run_cooldown(fixed_delay_seconds, wait_for_temp, target_temp_c, poll_interval_seconds, max_wait_seconds, unload_models_before_wait, sleep_fn, metrics_fn, unload_fn) -> str` (the testable core logic, wrapped by the V3 node class so tests don't need a real ComfyUI runtime).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_cooldown_node.py
@@ -1033,12 +1033,12 @@ def _make_fake_clock(elapsed):
     return clock
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cooldown_node.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.nodes.cooldown'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/nodes/cooldown.py
@@ -1146,13 +1146,13 @@ class SmartCooldownNode(io.ComfyNode):
 
 **Note for the implementer:** `comfy_api.latest.io` is only importable inside a running ComfyUI installation. `run_cooldown` (the function under test) has zero ComfyUI imports, which is why the tests above import only `backend.nodes.cooldown.run_cooldown` and never instantiate `SmartCooldownNode` — that class is verified manually in Task 9's smoke check, not by pytest. If the exact `io.*` schema API names above don't match the ComfyUI version installed at build time, consult `https://docs.comfy.org/custom-nodes/v3_migration` and adjust `define_schema`/`execute` accordingly — `run_cooldown`'s signature and behavior must not change to accommodate that.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_cooldown_node.py -v`
 Expected: 5 passed
 (This will fail at import time if `comfy_api.latest` isn't installed — if so, wrap the `from comfy_api.latest import io` import in a `try/except ImportError` at module scope so `run_cooldown` remains importable standalone; the tests only need `run_cooldown`.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/nodes/__init__.py backend/nodes/cooldown.py tests/test_cooldown_node.py
@@ -1171,7 +1171,7 @@ git commit -m "Add Smart Cooldown & Pause node (V3 schema, testable core logic)"
 - Consumes: `persistence` module (Task 4), `AutopilotState` (Task 3), `AutopilotSettings` (Task 2).
 - Produces: `register_routes(app: web.Application, conn: sqlite3.Connection, state: AutopilotState, settings: AutopilotSettings) -> None`, adding `GET /smart_queue/status`, `GET /smart_queue/queue`, `POST /smart_queue/reorder`, `GET /smart_queue/history`, `GET /smart_queue/settings`, `POST /smart_queue/settings`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_routes.py
@@ -1246,12 +1246,12 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert self.settings.master_enabled is False
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_routes.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'backend.routes'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # backend/routes.py
@@ -1304,12 +1304,12 @@ def register_routes(
     app.router.add_post("/smart_queue/settings", post_settings)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_routes.py -v`
 Expected: 7 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/routes.py tests/test_routes.py
@@ -1328,7 +1328,7 @@ git commit -m "Add HTTP routes for the Smart Queue panel"
 - Consumes: `SmartCooldownNode` (Task 7), `create_queue_middleware` (Task 5), `register_routes` (Task 8), `run_autopilot_tick` (Task 6), `AutopilotSettings` (Task 2), `init_db` (Task 4).
 - Produces: `NODE_CLASS_MAPPINGS = {"RubzGpuCooldownNode": SmartCooldownNode}`, `NODE_DISPLAY_NAME_MAPPINGS = {"RubzGpuCooldownNode": "Smart Cooldown & Pause"}`, `WEB_DIRECTORY = "./web"`, plus a running background asyncio task that ticks the autopilot loop every 5 seconds for as long as ComfyUI's server is up.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_smoke.py — replace the existing body with:
@@ -1364,12 +1364,12 @@ def test_web_directory_is_declared():
     assert module.WEB_DIRECTORY == "./web"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_smoke.py -v`
 Expected: FAIL — `RubzGpuCooldownNode` not in `NODE_CLASS_MAPPINGS` (currently empty dict)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # __init__.py
@@ -1444,12 +1444,12 @@ if _HAS_COMFY_SERVER:
     logger.info("[Smart Queue] Loaded — autopilot + Smart Cooldown & Pause node registered.")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/ -v`
 Expected: all tests pass (the `_HAS_COMFY_SERVER` guard means `__init__.py` degrades gracefully outside a real ComfyUI process, which is exactly the environment pytest runs in)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add __init__.py tests/test_smoke.py
@@ -1466,7 +1466,7 @@ git commit -m "Wire autopilot, middleware, routes, and node into package init"
 
 This task has no automated test — it requires a running ComfyUI instance (per spec §9, the panel/theme/Nodes-2.0 checks are explicitly manual). Do not skip the manual verification steps below; they are the acceptance criteria for this task.
 
-- [ ] **Step 1: Write `web/smart_queue.js`**
+- [x] **Step 1: Write `web/smart_queue.js`**
 
 ```javascript
 import { app } from "../../scripts/app.js";
@@ -1609,7 +1609,7 @@ app.registerExtension({
 });
 ```
 
-- [ ] **Step 2: Write `web/smart_queue.css`**
+- [x] **Step 2: Write `web/smart_queue.css`**
 
 ```css
 #smart-queue-panel {
@@ -1639,19 +1639,19 @@ app.registerExtension({
 }
 ```
 
-- [ ] **Step 3: Manual verification against a running ComfyUI instance**
+- [x] **Step 3: Manual verification against a running ComfyUI instance** *(items 1,2,3,5,6 verified 2026-08-29; item 4 — Nodes 2.0 toggle — still pending; item 7 verified via the master-toggle-off code path, not re-tested live after the toolbar-button rework)*
 
 Use the `run` skill to launch ComfyUI with this pack installed, then check:
 
-1. Open **Settings → Smart Queue** — confirm the master toggle, 3 rule toggles, and 4 threshold fields from Step 1 appear with their correct defaults (80/72°C, 1024MB, 20 jobs), and confirm `GET /smart_queue/settings` reflects them after a few seconds (the periodic sync).
-2. With the master toggle ON, confirm the panel appears somewhere in the UI and shows "Smart Queue: running".
-3. Queue a workflow; confirm it appears in the panel's list with its actual name, not a timestamp.
-4. Switch **Settings → Comfy → Modern Node Design (Nodes 2.0)** OFF, reload, repeat steps 2-3. Then switch it back ON, reload, repeat again. Both must work identically.
-5. Switch **Settings → Appearance** to a different theme (e.g. light, or any installed custom theme), reload, and visually confirm the panel's colors follow the theme rather than staying hardcoded.
-6. If ComfyUI-Crystools is installed and enabled, confirm the panel's GPU readout is hidden (queue status still shows). If not installed, confirm the GPU readout is shown.
-7. Turn the master toggle OFF, reload, confirm the panel does not appear at all.
+1. [x] Open **Settings → Smart Queue** — confirm the master toggle, 3 rule toggles, and 4 threshold fields from Step 1 appear with their correct defaults (80/72°C, 1024MB, 20 jobs), and confirm `GET /smart_queue/settings` reflects them after a few seconds (the periodic sync).
+2. [x] With the master toggle ON, confirm the panel appears somewhere in the UI and shows "Smart Queue: running".
+3. [x] Queue a workflow; confirm it appears in the panel's list with its actual name, not a timestamp. *(Required building `backend/queue_tracker.py` — this wasn't wired up at all before manual testing; see spec §13.)*
+4. [ ] Switch **Settings → Comfy → Modern Node Design (Nodes 2.0)** OFF, reload, repeat steps 2-3. Then switch it back ON, reload, repeat again. Both must work identically. **Not yet done.**
+5. [x] Switch **Settings → Appearance** to a different theme (e.g. light, or any installed custom theme), reload, and visually confirm the panel's colors follow the theme rather than staying hardcoded.
+6. [x] If ComfyUI-Crystools is installed and enabled, confirm the panel's GPU readout is hidden (queue status still shows). If not installed, confirm the GPU readout is shown.
+7. [x] Turn the master toggle OFF, reload, confirm the panel does not appear at all.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add web/smart_queue.js web/smart_queue.css
@@ -1668,7 +1668,15 @@ git commit -m "Add queue panel UI with theme-aware styling and Crystools detecti
 
 This task also has no automated test (browser audio/DOM only) — manual verification is the acceptance criteria, per spec §9.
 
-- [ ] **Step 1: Write `web/smart_queue_node.js`**
+**Blocked (2026-08-29):** `RubzGpuCooldownNode` is registered by both this
+package and the old `rubz-gpu-cooldown` pack under the same node-type ID;
+the old V1 node currently wins (loads later alphabetically, overwrites the
+mapping) so the new node with sound/toast/continue-button support can't be
+placed on a canvas to test. Old folder renamed to
+`rubz-gpu-cooldown.disabled` to unblock the next verification pass — see
+spec §13. Once a restart confirms the new node loads, resume at Step 2.
+
+- [x] **Step 1: Write `web/smart_queue_node.js`** *(also wired the Python side — `execute()` in `backend/nodes/cooldown.py` dispatches the `smart_queue.cooldown_notify` and `smart_queue.cooldown_wait_for_click` events and blocks via `backend/continue_registry.py` — beyond what this step's snippet below shows.)*
 
 ```javascript
 import { app } from "../../scripts/app.js";
@@ -1728,5 +1736,14 @@ git commit -m "Add node notification UI: continue button, toast, sound playback"
 ## Post-implementation
 
 Once all 11 tasks are verified (automated tests green in CI for Tasks 1-9, manual checks passed for Tasks 10-11): delete `D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\rubz-gpu-cooldown` per spec §10, and update the spec's "Status" line from "Draft" to "v1 implemented".
+
+**Status as of 2026-08-29:** Tasks 1-9 done (70 automated tests green — up
+from the original plan's count, four bugs found only by manual testing
+required new code: `backend/queue_tracker.py`, the manual-pause additions to
+`autopilot_state.py`/`queue_middleware.py`/`routes.py`, and CSS-loading /
+toolbar-button fixes in `web/`). Task 10 verified except the Nodes 2.0
+toggle check. Task 11 blocked on the `rubz-gpu-cooldown` name collision —
+old folder renamed to `.disabled`, not yet deleted; do that only after Task
+11 passes and the toggle check is done. See spec §13 for full detail.
 
 v2 features (rename jobs, filter/search, auto-archive, bulk operations, priority adjustment, cancel-and-requeue — spec §10) are out of scope for this plan and should get their own plan once v1 is in daily use.
