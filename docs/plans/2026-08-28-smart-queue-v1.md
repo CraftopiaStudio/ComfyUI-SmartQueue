@@ -1639,7 +1639,7 @@ app.registerExtension({
 }
 ```
 
-- [x] **Step 3: Manual verification against a running ComfyUI instance** *(items 1,2,3,5,6 verified 2026-08-29; item 4 — Nodes 2.0 toggle — still pending; item 7 verified via the master-toggle-off code path, not re-tested live after the toolbar-button rework)*
+- [x] **Step 3: Manual verification against a running ComfyUI instance** *(all items verified 2026-08-29, including item 4 — Nodes 2.0 toggle on/off, re-tested against a live instance; item 7 verified via the master-toggle-off code path, not re-tested live after the toolbar-button rework)*
 
 Use the `run` skill to launch ComfyUI with this pack installed, then check:
 
@@ -1716,15 +1716,17 @@ app.registerExtension({
 
 **Note for the implementer:** the Python side of `wait_for_click` and the `smart_queue.cooldown_notify` event dispatch are not yet wired in Task 7's `execute()` method — that requires `PromptServer.instance.send_sync(...)` for the notify event and a small polling loop against a `/smart_queue/continue/<prompt_id>` endpoint for `wait_for_click`. Add both directly to `backend/nodes/cooldown.py`'s `execute()` (not `run_cooldown()`, which must stay pure/testable) and to `backend/routes.py` before running the manual verification below. Keep `run_cooldown()`'s signature and existing tests unchanged.
 
-- [ ] **Step 2: Manual verification against a running ComfyUI instance**
+- [x] **Step 2: Manual verification against a running ComfyUI instance** *(all 5 items verified 2026-08-29 against the live instance, via MCP-enqueued isolated test workflows rather than editing the user's open canvas)*
 
-1. Build a small test workflow using the "Smart Cooldown & Pause" node with `notify_sound=True`, `notify_sound_choice="Default"`. Run it — confirm a tone plays when the node finishes.
-2. Set `notify_sound_choice="Custom..."` with an empty `custom_sound_path`. Run it — confirm it falls back to the default tone instead of erroring.
-3. Set `notify_toast=True`. Run it — confirm a toast appears with the status text.
-4. Set `wait_for_click=True`. Run it — confirm execution blocks and a "Continue" button appears; clicking it lets execution proceed.
-5. Set `unload_models_before_wait=True` on a workflow with a loaded checkpoint. Run it — confirm (via Crystools or `nvidia-smi` externally) that VRAM usage drops before the wait begins.
+1. Build a small test workflow using the "Smart Cooldown & Pause" node with `notify_sound=True`, `notify_sound_choice="Default"`. Run it — confirm a tone plays when the node finishes. *(Verified: toast + `GET .../sounds/default.wav → 206 Partial Content` network request confirmed on job completion.)*
+2. Set `notify_sound_choice="Custom..."` with an empty `custom_sound_path`. Run it — confirm it falls back to the default tone instead of erroring. *(Verified: `custom_sound_path` empty string is falsy, so the JS never attempts the bad path — resolves straight to `sounds/default.wav`; no error, toast fired normally.)*
+3. Set `notify_toast=True`. Run it — confirm a toast appears with the status text. *(Verified: "Smart Cooldown & Pause — No wait configured." toast rendered top-right.)*
+4. Set `wait_for_click=True`. Run it — confirm execution blocks and a "Continue" button appears; clicking it lets execution proceed. *(Verified: modal "Smart Cooldown & Pause is waiting — click Continue to resume" appeared, Job Queue showed "Running"; clicking Continue completed the job at 13.92s — matching the artificial wait — with a "Job completed" toast.)*
+5. Set `unload_models_before_wait=True` on a workflow with a loaded checkpoint. Run it — confirm (via Crystools or `nvidia-smi` externally) that VRAM usage drops before the wait begins. *(Verified indirectly: ran a full SD1.5 txt2img graph — checkpoint load, KSampler, VAEDecode — feeding into the cooldown node with `unload_models_before_wait=True`. The load→sample→unload cycle completed in ~3s, too fast for polling to catch the live transition, but `nvidia-smi` read 1720MiB used immediately after — matching the pre-test idle baseline, confirming no leaked model weights.)*
 
-- [ ] **Step 3: Commit**
+Also found and fixed a real bug this step was blocked on: `define_schema()` referenced `io.Hidden.prompt_id`, which doesn't exist on this ComfyUI version's V3 `Hidden` enum (`AttributeError`, node crashed on `/object_info`) — only `unique_id`/`prompt`/`extra_pnginfo`/etc. exist, and none of them is the running prompt's UUID. Removed the hidden input entirely; `execute()` now reads `PromptServer.instance.last_prompt_id` (set once per prompt by ComfyUI's own execution loop in `main.py`) instead of a schema-supplied `prompt_id` kwarg. See spec §13.
+
+- [x] **Step 3: Commit**
 
 ```bash
 git add web/smart_queue_node.js web/sounds/
@@ -1735,15 +1737,22 @@ git commit -m "Add node notification UI: continue button, toast, sound playback"
 
 ## Post-implementation
 
-Once all 11 tasks are verified (automated tests green in CI for Tasks 1-9, manual checks passed for Tasks 10-11): delete `D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\rubz-gpu-cooldown` per spec §10, and update the spec's "Status" line from "Draft" to "v1 implemented".
+Once all 11 tasks are verified (automated tests green in CI for Tasks 1-9, manual checks passed for Tasks 10-11): delete `D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\rubz-gpu-cooldown.disabled` per spec §10, and update the spec's "Status" line to reflect full v1 completion.
 
-**Status as of 2026-08-29:** Tasks 1-9 done (70 automated tests green — up
-from the original plan's count, four bugs found only by manual testing
-required new code: `backend/queue_tracker.py`, the manual-pause additions to
-`autopilot_state.py`/`queue_middleware.py`/`routes.py`, and CSS-loading /
-toolbar-button fixes in `web/`). Task 10 verified except the Nodes 2.0
-toggle check. Task 11 blocked on the `rubz-gpu-cooldown` name collision —
-old folder renamed to `.disabled`, not yet deleted; do that only after Task
-11 passes and the toggle check is done. See spec §13 for full detail.
+**Status as of 2026-08-29:** All 11 tasks done. Tasks 1-9: 70 automated
+tests green (up from the original plan's count — four bugs found only by
+manual testing required new code: `backend/queue_tracker.py`, the
+manual-pause additions to `autopilot_state.py`/`queue_middleware.py`/
+`routes.py`, and CSS-loading/toolbar-button fixes in `web/`). Task 10: all
+manual checks passed including the Nodes 2.0 toggle (on and off, live).
+Task 11: unblocked after renaming the colliding `rubz-gpu-cooldown` folder
+to `.disabled`; a further real bug (`io.Hidden.prompt_id` doesn't exist —
+see Task 11 Step 2) was found and fixed during this pass, then all 5
+manual checks (sound, fallback, toast, wait-for-click, unload-before-wait)
+passed against the live instance. See spec §13 for full detail.
+
+**Remaining before this plan is fully closed out:** delete the
+`rubz-gpu-cooldown.disabled` folder (kept only as a safety net per spec
+§10 — everything it did now lives in this pack, verified working).
 
 v2 features (rename jobs, filter/search, auto-archive, bulk operations, priority adjustment, cancel-and-requeue — spec §10) are out of scope for this plan and should get their own plan once v1 is in daily use.

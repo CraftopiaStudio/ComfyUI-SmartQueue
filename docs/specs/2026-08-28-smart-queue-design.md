@@ -1,6 +1,6 @@
 # Smart Queue — Design Spec
 
-Status: v1 implemented and manually verified against a running ComfyUI instance (Tasks 1-9 automated, 70 tests green; Task 10 UI verified — panel, settings sync, Crystools detection, theme, manual pause; Task 11 node-notification checks pending, blocked on the `rubz-gpu-cooldown` name collision, see §13)
+Status: v1 fully implemented and manually verified against a running ComfyUI instance (Tasks 1-9 automated, 70 tests green; Task 10 UI verified — panel, settings sync, Crystools detection, theme, manual pause, Nodes 2.0 toggle on/off; Task 11 node-notification checks verified — sound, toast, fallback, wait-for-click, unload-before-wait; see §13). Remaining: delete `rubz-gpu-cooldown.disabled` per §10.
 Date: 2026-08-29
 Repo: `comfyui-smart-queue` (D:\AI\ComfyUI-AGAIN\ComfyUI\custom_nodes\comfyui-smart-queue)
 GitHub: `github.com/CraftopiaStudio/comfyui-smart-queue` (alongside ComfyUI-WorkflowOrganizer and CraftKit)
@@ -307,12 +307,44 @@ bug:
   group — letting the browser's own flex layout make room instead of
   computing pixel offsets. A periodic re-insert check guards against Vue
   dropping the manually-inserted node on re-render.
-- **Blocked**: Task 11's node-notification checks (sound/toast/continue
-  button) could not be run — `RubzGpuCooldownNode` is registered by *both*
-  packages, and `rubz-gpu-cooldown` (old, V1-schema) wins over
-  `comfyui-smart-queue`'s new V3 node because it loads later alphabetically,
-  shadowing the new node's `NODE_CLASS_MAPPINGS` entry entirely. Confirmed via
+- **Resolved**: Task 11's node-notification checks were initially blocked —
+  `RubzGpuCooldownNode` was registered by *both* packages, and
+  `rubz-gpu-cooldown` (old, V1-schema) won over `comfyui-smart-queue`'s new
+  V3 node because it loaded later alphabetically, shadowing the new node's
+  `NODE_CLASS_MAPPINGS` entry entirely. Confirmed via
   `GET /object_info/RubzGpuCooldownNode` → `python_module:
-  custom_nodes.rubz-gpu-cooldown`. The old folder was renamed to
+  custom_nodes.rubz-gpu-cooldown`. Fixed by renaming the old folder to
   `rubz-gpu-cooldown.disabled` (ComfyUI's standard disable convention, fully
-  reversible) rather than deleted, pending the next verification pass.
+  reversible) and restarting ComfyUI.
+- **A second, real bug surfaced immediately after the restart**: the new
+  node's `define_schema()` referenced `io.Hidden.prompt_id`, which doesn't
+  exist on this ComfyUI version's V3 `Hidden` enum (only `unique_id`,
+  `prompt`, `extra_pnginfo`, `dynprompt`, `auth_token_comfy_org`,
+  `api_key_comfy_org`, `comfy_usage_source`) — every `/object_info` request
+  for the node threw `AttributeError: type object 'Hidden' has no attribute
+  'prompt_id'`, confirmed in `user/comfyui.log`. None of the real `Hidden`
+  members carry the running prompt's UUID. Fixed by dropping the hidden
+  schema input entirely; `execute()` now reads
+  `PromptServer.instance.last_prompt_id` — set once per prompt by
+  ComfyUI's own single-threaded execution loop (`main.py`) right before a
+  prompt's nodes run, so it is stable for the duration of that node's
+  `execute()` call. Unit tests were unaffected (they target `run_cooldown()`
+  only, not `execute()`/`define_schema()`).
+- **Task 11 manual checks (2026-08-29), all passed** against the live
+  instance, via isolated test workflows submitted through the ComfyUI MCP
+  rather than editing the user's open canvas: default-sound tone + toast
+  fired and logged a real `sounds/default.wav` network fetch;
+  `notify_sound_choice="Custom..."` with an empty path resolved straight to
+  the default tone (the empty string is falsy, so the JS path never even
+  attempts the bad URL — no error path exercised, none needed);
+  `wait_for_click=True` blocked execution behind a "Continue" modal that,
+  once clicked, completed the job; and a full SD1.5 txt2img graph piped into
+  the node with `unload_models_before_wait=True` left `nvidia-smi` reporting
+  VRAM back at the pre-test idle baseline afterward (the load→unload cycle
+  itself was too fast, ~3s, for polling to catch the live transition).
+- **Task 10's previously-pending Nodes 2.0 toggle check also completed**
+  during this pass: toggled "Modern Node Design (Nodes 2.0)" on, confirmed
+  the queue panel, manual-pause toolbar button, cooldown node's
+  Continue-modal and toast all still render and function correctly under
+  the new Vue-based rendering, then toggled it back off (restoring the
+  user's original setting).

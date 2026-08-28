@@ -88,7 +88,6 @@ class SmartCooldownNode(_NodeBase):
                 io.String.Input("custom_sound_path", default="", optional=True),
                 io.Boolean.Input("notify_toast", default=False),
                 io.AnyType.Input("passthrough", optional=True),
-                io.Hidden.prompt_id,
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
@@ -126,7 +125,7 @@ class SmartCooldownNode(_NodeBase):
             })
 
         if kwargs["wait_for_click"]:
-            prompt_id = kwargs.get("prompt_id")
+            prompt_id = PromptServer.instance.last_prompt_id
             PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
                 "prompt_id": prompt_id,
             })
