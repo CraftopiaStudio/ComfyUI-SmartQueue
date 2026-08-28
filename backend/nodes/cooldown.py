@@ -11,6 +11,7 @@ except ImportError:
     io = None  # type: ignore[assignment]
     _HAS_COMFY_IO = False
 
+from ..continue_registry import wait_for_continue
 from ..gpu_monitor import GpuMetrics, poll_gpu_metrics
 
 
@@ -87,6 +88,7 @@ class SmartCooldownNode(_NodeBase):
                 io.String.Input("custom_sound_path", default="", optional=True),
                 io.Boolean.Input("notify_toast", default=False),
                 io.AnyType.Input("passthrough", optional=True),
+                io.Hidden.prompt_id,
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
@@ -98,6 +100,7 @@ class SmartCooldownNode(_NodeBase):
     @classmethod
     def execute(cls, **kwargs):
         import comfy.model_management as model_management
+        from server import PromptServer
 
         status = run_cooldown(
             fixed_delay_seconds=kwargs["fixed_delay_seconds"],
@@ -110,4 +113,24 @@ class SmartCooldownNode(_NodeBase):
             metrics_fn=poll_gpu_metrics,
             unload_fn=model_management.unload_all_models,
         )
+
+        notify_sound = kwargs["notify_sound"]
+        notify_toast = kwargs["notify_toast"]
+        if notify_sound or notify_toast:
+            PromptServer.instance.send_sync("smart_queue.cooldown_notify", {
+                "notify_sound": notify_sound,
+                "notify_sound_choice": kwargs["notify_sound_choice"],
+                "custom_sound_path": kwargs.get("custom_sound_path", ""),
+                "notify_toast": notify_toast,
+                "status": status,
+            })
+
+        if kwargs["wait_for_click"]:
+            prompt_id = kwargs.get("prompt_id")
+            PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
+                "prompt_id": prompt_id,
+            })
+            wait_for_continue(prompt_id)
+            status += " | Continued by user click."
+
         return io.NodeOutput(kwargs.get("passthrough"), status)
