@@ -11,6 +11,9 @@ class AutopilotState:
         self.last_reasons: tuple[str, ...] = ()
         self.manual_paused: bool = False
         self.last_metrics: GpuMetrics | None = None
+        # Monotonic timestamp the job-count break began, or None outside one.
+        # The clock itself lives in autopilot_loop (this class stays I/O-free).
+        self.break_started_at: float | None = None
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused
@@ -24,6 +27,20 @@ class AutopilotState:
 
     def record_job_started(self) -> None:
         self.jobs_since_resume += 1
+
+    def start_break(self, now: float) -> None:
+        self.break_started_at = now
+
+    def end_break(self) -> None:
+        """Ends the job-count break by clearing the counter that triggered it.
+
+        Resetting jobs_since_resume here (rather than in apply()) is what makes
+        the pause releasable at all: apply() only zeroes it on a paused->
+        unpaused transition, which the job-count rule can never reach on its
+        own — it keeps firing off the very counter that transition was meant
+        to clear, so the queue stayed paused forever."""
+        self.break_started_at = None
+        self.jobs_since_resume = 0
 
     def set_manual_pause(self, paused: bool) -> None:
         self.manual_paused = paused

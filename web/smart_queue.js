@@ -51,6 +51,13 @@ app.registerExtension({
             category: ["SmartQueue", "3. VRAM", "Pause the queue automatically when VRAM is running low"],
         },
         {
+            id: "SmartQueue.JobCountBreakMinutes",
+            name: "How long that break should last (minutes)",
+            type: "number",
+            defaultValue: 5,
+            category: ["SmartQueue", "4. Job count", "How long that break should last (minutes)"],
+        },
+        {
             id: "SmartQueue.MaxJobsBeforePause",
             name: "How many jobs before taking that break",
             type: "number",
@@ -91,6 +98,7 @@ app.registerExtension({
                 min_free_vram_mb: app.extensionManager.setting.get("SmartQueue.MinFreeVramMb"),
                 job_count_rule_enabled: app.extensionManager.setting.get("SmartQueue.JobCountRuleEnabled"),
                 max_jobs_before_pause: app.extensionManager.setting.get("SmartQueue.MaxJobsBeforePause"),
+                job_count_break_minutes: app.extensionManager.setting.get("SmartQueue.JobCountBreakMinutes"),
                 history_retention_days: app.extensionManager.setting.get("SmartQueue.HistoryRetentionDays"),
             };
             try {
@@ -650,11 +658,28 @@ app.registerExtension({
                                 // whole selected group together (preserving their relative
                                 // order), not just the row the user happened to grab — same
                                 // as comfyui-workfloworganizer's multi-drag behavior.
-                                const ids = data.items.map((i) => i.prompt_id);
-                                const movingIds = (selectedPromptIds.has(dragSourceId) && selectedPromptIds.size > 1)
-                                    ? ids.filter((id) => selectedPromptIds.has(id))
-                                    : [dragSourceId];
+                                const sourceId = dragSourceId;
                                 dragSourceId = null;
+                                // data.items holds only the matches while the search box
+                                // has text in it. Sending that as the complete order made
+                                // the server treat every non-matching job as a leftover and
+                                // append it *after* the matches — silently promoting the
+                                // search results to the front of the real queue — and left
+                                // duplicate order_index values behind in SQLite. Reorder
+                                // against the full queue instead.
+                                let ids = data.items.map((i) => i.prompt_id);
+                                if (panel.querySelector("#smart-queue-search").value.trim()) {
+                                    try {
+                                        const fullRes = await fetch("/smart_queue/queue");
+                                        ids = (await fullRes.json()).items.map((i) => i.prompt_id);
+                                    } catch (err) {
+                                        console.error("[Smart Queue] reorder aborted, could not read the unfiltered queue:", err);
+                                        return;
+                                    }
+                                }
+                                const movingIds = (selectedPromptIds.has(sourceId) && selectedPromptIds.size > 1)
+                                    ? ids.filter((id) => selectedPromptIds.has(id))
+                                    : [sourceId];
                                 if (movingIds.includes(item.prompt_id)) return;
                                 const remaining = ids.filter((id) => !movingIds.includes(id));
                                 const toIdx = remaining.indexOf(item.prompt_id);

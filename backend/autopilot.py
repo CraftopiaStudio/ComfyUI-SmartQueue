@@ -23,6 +23,10 @@ class AutopilotSettings:
 
     job_count_rule_enabled: bool = False
     max_jobs_before_pause: int = 20
+    # How long the break after a batch lasts. The rule pauses on a count, so
+    # without a duration nothing could ever end that pause — see
+    # autopilot_loop.run_autopilot_tick, which owns this clock.
+    job_count_break_minutes: float = 5.0
 
     history_retention_days: int = 30
 

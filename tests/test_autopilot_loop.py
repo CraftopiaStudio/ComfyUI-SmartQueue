@@ -40,3 +40,78 @@ async def test_tick_fails_open_when_metrics_provider_raises():
 
     await run_autopilot_tick(state, settings, broken_metrics)
     assert state.is_paused is False
+
+
+@pytest.mark.asyncio
+async def test_tick_fails_open_when_a_setting_has_the_wrong_type():
+    # POST /smart_queue/settings takes the payload as-is, so a threshold can
+    # arrive as a string. That raises inside evaluate(), not in the metrics
+    # provider — and the tick runs in a `while True` loop that also drives
+    # queue tracking and history retention, so it must not escape.
+    state = AutopilotState()
+    settings = AutopilotSettings(temp_rule_enabled=True)
+    settings.update_from_dict({"pause_temp_c": "80"})
+
+    async def fake_metrics():
+        return GpuMetrics(temp_c=90.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=10.0)
+
+    await run_autopilot_tick(state, settings, fake_metrics)
+    assert state.is_paused is False
+
+
+@pytest.mark.asyncio
+async def test_job_count_break_ends_after_its_configured_duration():
+    # Regression: the job-count rule used to latch forever. jobs_since_resume
+    # was only reset on a paused->unpaused transition, which the rule itself
+    # made unreachable — it kept firing off the very counter that transition
+    # was meant to clear.
+    state = AutopilotState()
+    settings = AutopilotSettings(
+        job_count_rule_enabled=True, max_jobs_before_pause=3, job_count_break_minutes=5.0
+    )
+
+    async def fake_metrics():
+        return GpuMetrics(temp_c=50.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=10.0)
+
+    for _ in range(3):
+        state.record_job_started()
+
+    now = 0.0
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is True
+
+    now = 299.0
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is True, "break must last the full 5 minutes"
+
+    now = 300.0
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is False
+    assert state.jobs_since_resume == 0
+
+
+@pytest.mark.asyncio
+async def test_job_count_break_can_trigger_again_after_a_completed_break():
+    state = AutopilotState()
+    settings = AutopilotSettings(
+        job_count_rule_enabled=True, max_jobs_before_pause=2, job_count_break_minutes=1.0
+    )
+
+    async def fake_metrics():
+        return GpuMetrics(temp_c=50.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=10.0)
+
+    now = 0.0
+    for _ in range(2):
+        state.record_job_started()
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is True
+
+    now = 60.0
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is False
+
+    for _ in range(2):
+        state.record_job_started()
+    now = 61.0
+    await run_autopilot_tick(state, settings, fake_metrics, clock=lambda: now)
+    assert state.is_paused is True
