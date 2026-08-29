@@ -5,7 +5,7 @@ subprocess — that keeps it trivially unit-testable and lets the fail-open
 guarantee live entirely in the caller (backend.autopilot_loop).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from .gpu_monitor import GpuMetrics
 
@@ -32,10 +32,23 @@ class AutopilotSettings:
 
     def update_from_dict(self, values: dict) -> None:
         """Mutates in place so callers holding a reference (the background
-        loop, the middleware's is_enabled closure) see updates immediately."""
+        loop, the middleware's is_enabled closure) see updates immediately.
+
+        Only real dataclass fields can be set (unknown keys, including
+        method names like "update_from_dict" itself, are ignored rather than
+        clobbering an attribute the object needs), and each value is coerced
+        to that field's declared type so a malformed request body fails
+        loudly here instead of crashing the next autopilot tick that reads
+        it (see spec §26.2)."""
+        field_types = {f.name: f.type for f in fields(self)}
         for key, value in values.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
+            target_type = field_types.get(key)
+            if target_type is None:
+                continue
+            try:
+                setattr(self, key, target_type(value))
+            except (TypeError, ValueError):
+                continue
 
 
 @dataclass

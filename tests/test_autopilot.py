@@ -90,6 +90,31 @@ def test_update_from_dict_mutates_matching_fields_only():
     assert not hasattr(settings, "not_a_real_field")
 
 
+def test_update_from_dict_coerces_values_to_the_declared_type():
+    settings = AutopilotSettings()
+    settings.update_from_dict({"pause_temp_c": "90", "max_jobs_before_pause": "5", "temp_rule_enabled": True})
+    assert settings.pause_temp_c == 90.0
+    assert isinstance(settings.pause_temp_c, float)
+    assert settings.max_jobs_before_pause == 5
+    assert isinstance(settings.max_jobs_before_pause, int)
+
+
+def test_update_from_dict_ignores_a_value_that_cannot_be_coerced():
+    settings = AutopilotSettings(pause_temp_c=80.0)
+    settings.update_from_dict({"pause_temp_c": "not-a-number"})
+    assert settings.pause_temp_c == 80.0
+
+
+def test_update_from_dict_cannot_clobber_its_own_method():
+    # A malicious or malformed payload of {"update_from_dict": 1} used to
+    # setattr over the method itself via plain hasattr()/setattr(), crashing
+    # every later call (spec §26.2).
+    settings = AutopilotSettings()
+    settings.update_from_dict({"update_from_dict": 1})
+    settings.update_from_dict({"pause_temp_c": 77.0})
+    assert settings.pause_temp_c == 77.0
+
+
 def test_multiple_reasons_all_reported():
     settings = AutopilotSettings(
         temp_rule_enabled=True, pause_temp_c=80.0, vram_rule_enabled=True, min_free_vram_mb=1024.0

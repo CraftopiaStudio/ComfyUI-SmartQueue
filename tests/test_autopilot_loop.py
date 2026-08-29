@@ -44,13 +44,16 @@ async def test_tick_fails_open_when_metrics_provider_raises():
 
 @pytest.mark.asyncio
 async def test_tick_fails_open_when_a_setting_has_the_wrong_type():
-    # POST /smart_queue/settings takes the payload as-is, so a threshold can
-    # arrive as a string. That raises inside evaluate(), not in the metrics
-    # provider — and the tick runs in a `while True` loop that also drives
-    # queue tracking and history retention, so it must not escape.
+    # AutopilotSettings.update_from_dict now coerces incoming values to each
+    # field's declared type (spec §26.2), so a string from the settings
+    # endpoint no longer reaches evaluate() as one. This test instead
+    # simulates a bad type landing on the dataclass by some other path, to
+    # keep the tick's own fail-open guard covered independently of that fix
+    # — the tick runs in a `while True` loop that also drives queue tracking
+    # and history retention, so a bad value must not escape it.
     state = AutopilotState()
     settings = AutopilotSettings(temp_rule_enabled=True)
-    settings.update_from_dict({"pause_temp_c": "80"})
+    settings.pause_temp_c = "80"
 
     async def fake_metrics():
         return GpuMetrics(temp_c=90.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=10.0)
