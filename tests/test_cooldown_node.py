@@ -35,6 +35,24 @@ def test_unload_models_called_before_wait_when_enabled():
     assert unload_calls == [True]
 
 
+def test_clear_cache_called_after_unload_when_enabled():
+    calls = []
+    run_cooldown(
+        fixed_delay_seconds=0.0,
+        wait_for_temp=False,
+        target_temp_c=65.0,
+        poll_interval_seconds=5.0,
+        max_wait_seconds=300.0,
+        unload_models_before_wait=True,
+        clear_cache_before_wait=True,
+        sleep_fn=lambda s: None,
+        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0, 10.0),
+        unload_fn=lambda: calls.append("unload"),
+        cache_fn=lambda: calls.append("cache"),
+    )
+    assert calls == ["unload", "cache"]
+
+
 def test_waits_for_temp_until_below_target():
     temps = iter([90.0, 80.0, 60.0])
     sleep_calls = []

@@ -9,6 +9,7 @@ from aiohttp import web
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
 from .continue_registry import signal_cancel, signal_continue
+from .native_dialog import browse_path
 from .persistence import (
     add_queue_item,
     list_history,
@@ -185,6 +186,9 @@ def register_routes(
         signal_cancel(prompt_id)
         return web.json_response({"ok": True})
 
+    async def post_browse_sound_file(request: web.Request) -> web.Response:
+        return await browse_path(request, pick_folder=False, title="Select notification sound")
+
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)
     app.router.add_post("/smart_queue/reorder", post_reorder)
@@ -196,3 +200,4 @@ def register_routes(
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
     app.router.add_post("/smart_queue/rename", post_rename)
     app.router.add_post("/smart_queue/cancel", post_cancel)
+    app.router.add_post("/smart_queue/browse_sound_file", post_browse_sound_file)

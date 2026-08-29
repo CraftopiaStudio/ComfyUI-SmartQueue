@@ -15,7 +15,7 @@ const BLINK_INTERVAL_MS = 500;
 // "Notifications" sections — used to insert separator lines between groups
 // without hardcoding array indices that would drift if the schema changes.
 const WAIT_SECTION_FIRST_WIDGET = "wait_for_click";
-const NOTIFY_SECTION_FIRST_WIDGET = "notify_sound";
+const NOTIFY_SECTION_FIRST_WIDGET = "notify_toast";
 
 // pending wait state, keyed by node id (string) -> { promptId }
 const pending = new Map();
@@ -75,6 +75,32 @@ function addSeparator(node, label, beforeWidgetName) {
     return widget;
 }
 
+// Dynamically show/hide a widget (e.g. a field that only makes sense when
+// another toggle is on) in a way that works in both classic LiteGraph and
+// Nodes 2.0. Ported from ComfyUI-CraftKit's own
+// js/shared/widget_visibility.mjs (setWidgetVisible) so this pack doesn't
+// depend on CraftKit being installed.
+function setWidgetVisible(node, widget, visible) {
+    if (!widget._visibilityDefaultCaptured) {
+        widget._defaultComputeSize = widget.computeSize;
+        widget._visibilityDefaultCaptured = true;
+    }
+    widget.computeSize = visible ? widget._defaultComputeSize : () => [0, -4];
+    widget.hidden = !visible;
+    if (!widget.options) widget.options = {};
+    widget.options.hidden = !visible;
+
+    // Nodes 2.0's widget list is a Vue shallowReactive array that only
+    // tracks the array's own indices/length, not properties nested inside
+    // each widget — a push-then-splice-it-back no-op forces a real
+    // structural mutation so Vue re-evaluates and picks up the new state.
+    const nudge = { name: "__visibility_nudge__", type: "custom", value: null, computeSize: () => [0, 0], draw() {} };
+    node.widgets.push(nudge);
+    node.widgets.splice(node.widgets.indexOf(nudge), 1);
+
+    node.setDirtyCanvas(true, true);
+}
+
 function setNodeWaiting(node, waiting) {
     if (waiting) {
         let on = true;
@@ -111,19 +137,95 @@ app.registerExtension({
     nodeCreated(node) {
         if (node.comfyClass !== COOLDOWN_NODE_CLASS) return;
 
-        // wait_for_click only matters together with the Continue/Cancel buttons
-        // below it — move it to sit directly above them instead of being
-        // separated by the unrelated Notifications section (matches CraftKit's
-        // own pattern of an options-style section immediately before the
-        // action button, e.g. Smart Batch Resize's "OPTIONS" -> "Run Batch").
-        const waitForClickWidget = node.widgets.find((w) => w.name === WAIT_SECTION_FIRST_WIDGET);
-        if (waitForClickWidget) {
-            node.widgets.splice(node.widgets.indexOf(waitForClickWidget), 1);
-            node.widgets.push(waitForClickWidget);
-        }
-
+        // wait_for_click, notify_toast, and custom_sound_path are declared in
+        // backend/nodes/cooldown.py in exactly the order they should appear
+        // here — do NOT reorder any of them (or any other real Python-backed
+        // widget) via node.widgets.splice(). Nodes 2.0 assigns each widget's
+        // default value positionally against the backend declaration order,
+        // so moving a schema widget in this array desyncs that assignment
+        // and corrupts values on unrelated widgets (confirmed live: this
+        // used to leave custom_sound_path holding a stray boolean `true`).
+        // Only divider and button widgets (JS-only, not schema-backed) are
+        // safe to splice in below.
         addSeparator(node, "NOTIFICATIONS", NOTIFY_SECTION_FIRST_WIDGET);
         addSeparator(node, "OPTIONS", WAIT_SECTION_FIRST_WIDGET);
+
+        // Only show the temp-wait tuning fields while wait_for_temp is on —
+        // they're meaningless (and the whole point of confusion) otherwise.
+        const waitForTempWidget = node.widgets.find((w) => w.name === "wait_for_temp");
+        const tempSubWidgets = ["target_temp_c", "poll_interval_seconds", "max_wait_seconds"]
+            .map((name) => node.widgets.find((w) => w.name === name))
+            .filter(Boolean);
+        if (waitForTempWidget && tempSubWidgets.length) {
+            const updateTempVisibility = () => {
+                for (const w of tempSubWidgets) setWidgetVisible(node, w, waitForTempWidget.value);
+            };
+            const origCallback = waitForTempWidget.callback;
+            waitForTempWidget.callback = function (...args) {
+                origCallback?.call(this, ...args);
+                updateTempVisibility();
+            };
+            const origOnConfigure = node.onConfigure;
+            node.onConfigure = function (...args) {
+                origOnConfigure?.call(this, ...args);
+                updateTempVisibility();
+            };
+            updateTempVisibility();
+        }
+
+        // Only show the sound-choice fields while notify_sound is on, and
+        // only show the custom path field once "Custom..." is picked.
+        const notifySoundWidget = node.widgets.find((w) => w.name === "notify_sound");
+        const notifySoundChoiceWidget = node.widgets.find((w) => w.name === "notify_sound_choice");
+        const customSoundPathWidget = node.widgets.find((w) => w.name === "custom_sound_path");
+        let browseBtn = null;
+        if (customSoundPathWidget && notifySoundChoiceWidget) {
+            // Browse button, copied from CraftKit's Smart Batch Resize
+            // (js/smart_batch_resize.js) "📁 Browse folder" pattern.
+            browseBtn = node.addWidget("button", "📁 Browse sound file", null, async () => {
+                try {
+                    const res = await fetch("/smart_queue/browse_sound_file", { method: "POST" });
+                    const data = await res.json();
+                    if (data.ok && data.path) {
+                        customSoundPathWidget.value = data.path;
+                        node.setDirtyCanvas(true);
+                    }
+                } catch (e) {
+                    console.error("[Smart Queue] Browse failed:", e);
+                }
+            }, { serialize: false });
+            browseBtn.serialize = false;
+
+            // Move Browse button to right after custom_sound_path
+            const pathIdx = node.widgets.indexOf(customSoundPathWidget);
+            node.widgets.splice(node.widgets.indexOf(browseBtn), 1);
+            node.widgets.splice(pathIdx + 1, 0, browseBtn);
+        }
+        if (notifySoundWidget && notifySoundChoiceWidget && customSoundPathWidget) {
+            const updateSoundVisibility = () => {
+                const soundOn = notifySoundWidget.value;
+                const showCustomPath = soundOn && notifySoundChoiceWidget.value === "Custom...";
+                setWidgetVisible(node, notifySoundChoiceWidget, soundOn);
+                setWidgetVisible(node, customSoundPathWidget, showCustomPath);
+                if (browseBtn) setWidgetVisible(node, browseBtn, showCustomPath);
+            };
+            const origSoundCallback = notifySoundWidget.callback;
+            notifySoundWidget.callback = function (...args) {
+                origSoundCallback?.call(this, ...args);
+                updateSoundVisibility();
+            };
+            const origChoiceCallback = notifySoundChoiceWidget.callback;
+            notifySoundChoiceWidget.callback = function (...args) {
+                origChoiceCallback?.call(this, ...args);
+                updateSoundVisibility();
+            };
+            const origOnConfigureSound = node.onConfigure;
+            node.onConfigure = function (...args) {
+                origOnConfigureSound?.call(this, ...args);
+                updateSoundVisibility();
+            };
+            updateSoundVisibility();
+        }
 
         // Plain default litegraph button — no custom draw/computeSize, copied
         // straight from CraftKit's own "▶ Run Batch" (js/smart_batch_resize.js),
@@ -155,6 +257,11 @@ app.registerExtension({
         cancelBtn.disabled = true;
 
         node._smartQueueWaitWidgets = { continueBtn, cancelBtn };
+
+        // Force a full size/layout recompute now that some widgets may have
+        // started out hidden (wait_for_temp/notify_sound default to off).
+        node.setSize(node.computeSize());
+        node.setDirtyCanvas(true, true);
     },
     async setup() {
         api.addEventListener("smart_queue.cooldown_notify", (event) => {

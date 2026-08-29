@@ -25,13 +25,26 @@ def run_cooldown(
     sleep_fn: Callable[[float], None],
     metrics_fn: Callable[[], GpuMetrics],
     unload_fn: Callable[[], None],
+    clear_cache_before_wait: bool = False,
+    cache_fn: Callable[[], None] | None = None,
     clock_fn: Callable[[], float] | None = None,
 ) -> str:
     log: list[str] = []
 
     if unload_models_before_wait:
+        # Drops the model weights, but the CUDA allocator still holds onto
+        # that memory in reserve for its own next allocation — nvidia-smi
+        # won't show it as freed until clear_cache_before_wait also runs.
         unload_fn()
         log.append("Unloaded all models")
+
+    if clear_cache_before_wait:
+        # gc.collect() first: a lingering Python reference to a tensor is
+        # exactly what stops the CUDA allocator from reclaiming it, so this
+        # needs to run before the cache-empty call, not just alongside it —
+        # matches ComfyUI's own "Free model and node cache" button (main.py).
+        cache_fn()
+        log.append("Cleared VRAM cache")
 
     if fixed_delay_seconds > 0:
         sleep_fn(fixed_delay_seconds)
@@ -75,18 +88,47 @@ class SmartCooldownNode(_NodeBase):
             node_id="RubzGpuCooldownNode",
             display_name="Smart Cooldown & Pause",
             category="utils",
+            # Declared in the exact order the node should display them in —
+            # the JS extension (web/smart_queue_node.js) only ever inserts
+            # section-divider and button widgets between these, it never
+            # reorders a real Python-backed widget. Nodes 2.0 assigns each
+            # widget's default value positionally against this declaration
+            # order, so splicing an actual schema widget to a new spot in
+            # node.widgets desyncs that assignment and corrupts values on
+            # unrelated widgets (confirmed live: moving wait_for_click and
+            # notify_toast left custom_sound_path holding a stray boolean).
             inputs=[
                 io.Float.Input("fixed_delay_seconds", default=30.0, min=0.0, max=3600.0, step=1.0),
                 io.Boolean.Input("wait_for_temp", default=True),
                 io.Float.Input("target_temp_c", default=65.0, min=30.0, max=100.0, step=1.0),
                 io.Float.Input("poll_interval_seconds", default=5.0, min=1.0, max=60.0, step=1.0),
                 io.Float.Input("max_wait_seconds", default=300.0, min=0.0, max=3600.0, step=10.0),
-                io.Boolean.Input("unload_models_before_wait", default=False),
-                io.Boolean.Input("wait_for_click", default=False),
+                io.Boolean.Input(
+                    "unload_models_before_wait",
+                    default=False,
+                    display_name="unload_models",
+                    tooltip="Unload all models from VRAM before waiting. Doesn't free the memory by itself — pair with clear_cache for that.",
+                ),
+                io.Boolean.Input(
+                    "clear_cache_before_wait",
+                    default=False,
+                    display_name="clear_cache",
+                    tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
+                ),
+                io.Boolean.Input(
+                    "notify_toast",
+                    default=False,
+                    display_name="notify_popup",
+                    tooltip="Show a small on-screen popup message in ComfyUI when this node finishes waiting.",
+                ),
                 io.Boolean.Input("notify_sound", default=False),
                 io.Combo.Input("notify_sound_choice", options=["Default", "Chime", "Alert", "Custom..."], default="Default"),
-                io.String.Input("custom_sound_path", default="", optional=True),
-                io.Boolean.Input("notify_toast", default=False),
+                # Not optional (despite only mattering when notify_sound_choice
+                # is "Custom..."): io.Schema always sorts optional inputs after
+                # every required one, which would silently kick this to the end
+                # of the widget list regardless of declaration order.
+                io.String.Input("custom_sound_path", default=""),
+                io.Boolean.Input("wait_for_click", default=False),
                 io.AnyType.Input("passthrough", optional=True),
             ],
             outputs=[
@@ -99,8 +141,14 @@ class SmartCooldownNode(_NodeBase):
 
     @classmethod
     def execute(cls, **kwargs):
+        import gc
+
         import comfy.model_management as model_management
         from server import PromptServer
+
+        def _clear_cache():
+            gc.collect()
+            model_management.soft_empty_cache()
 
         status = run_cooldown(
             fixed_delay_seconds=kwargs["fixed_delay_seconds"],
@@ -109,9 +157,11 @@ class SmartCooldownNode(_NodeBase):
             poll_interval_seconds=kwargs["poll_interval_seconds"],
             max_wait_seconds=kwargs["max_wait_seconds"],
             unload_models_before_wait=kwargs["unload_models_before_wait"],
+            clear_cache_before_wait=kwargs["clear_cache_before_wait"],
             sleep_fn=__import__("time").sleep,
             metrics_fn=poll_gpu_metrics,
             unload_fn=model_management.unload_all_models,
+            cache_fn=_clear_cache,
         )
 
         notify_sound = kwargs["notify_sound"]
