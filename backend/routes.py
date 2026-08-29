@@ -18,6 +18,7 @@ from .persistence import (
     rename_queue_item,
     reorder_queue_items,
     save_held_items,
+    save_manual_pause,
 )
 from .queue_hold import (
     QueueHold,
@@ -50,7 +51,12 @@ def register_routes(
 
     async def post_manual_pause(request: web.Request) -> web.Response:
         payload = await request.json()
-        state.set_manual_pause(bool(payload.get("paused", True)))
+        paused = bool(payload.get("paused", True))
+        state.set_manual_pause(paused)
+        # Persisted independently of held_items (spec §29 #11) — held_items
+        # is only ever non-empty while something was actually queued during
+        # the pause, so it can't cover a pause with nothing in flight.
+        save_manual_pause(conn, paused)
 
         held = released = 0
         if queue_hold is not None and prompt_queue is not None:

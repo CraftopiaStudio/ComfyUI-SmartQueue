@@ -5,7 +5,7 @@ from backend.persistence import init_db, add_queue_item
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
 from backend.continue_registry import InterruptProcessingException, signal_continue, wait_for_continue
-from backend.persistence import list_queue_items, load_held_items
+from backend.persistence import list_queue_items, load_held_items, load_manual_pause
 from backend.queue_hold import QueueHold
 from backend.routes import register_routes
 
@@ -128,6 +128,14 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         resp = await self.client.post("/smart_queue/manual_pause", json={"paused": False})
         assert resp.status == 200
         assert self.state.manual_paused is False
+
+    @unittest_run_loop
+    async def test_manual_pause_persists_flag_for_restart_recovery(self):
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+        assert load_manual_pause(self.conn) is True
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+        assert load_manual_pause(self.conn) is False
 
     @unittest_run_loop
     async def test_manual_pause_holds_pending_prompt_queue_items(self):

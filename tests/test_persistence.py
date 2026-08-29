@@ -9,6 +9,8 @@ from backend.persistence import (
     list_history,
     save_held_items,
     load_held_items,
+    save_manual_pause,
+    load_manual_pause,
     set_queue_item_status,
     delete_history_older_than,
 )
@@ -132,6 +134,29 @@ def test_held_items_survive_reopening_the_same_file(tmp_path):
     assert len(loaded) == 1
     assert loaded[0][1] == "a"
     assert loaded[0][2] == {"k": "v"}
+
+
+def test_load_manual_pause_defaults_to_false(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    assert load_manual_pause(conn) is False
+
+
+def test_save_and_load_manual_pause_round_trips(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    save_manual_pause(conn, True)
+    assert load_manual_pause(conn) is True
+    save_manual_pause(conn, False)
+    assert load_manual_pause(conn) is False
+
+
+def test_manual_pause_survives_reopening_the_same_file(tmp_path):
+    db_path = str(tmp_path / "test.sqlite3")
+    conn1 = init_db(db_path)
+    save_manual_pause(conn1, True)
+    conn1.close()
+
+    conn2 = init_db(db_path)
+    assert load_manual_pause(conn2) is True
 
 
 def test_rename_queue_item_updates_name(tmp_path):

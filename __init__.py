@@ -20,6 +20,7 @@ from .backend.persistence import (
     delete_history_older_than,
     init_db,
     load_held_items,
+    load_manual_pause,
     set_queue_item_status,
 )
 from .backend.queue_hold import QueueHold
@@ -124,18 +125,27 @@ if _HAS_COMFY_SERVER:
     # held_items is only ever non-empty while a manual pause is in effect (it's
     # cleared on every release) — so finding rows here means the previous
     # process stopped mid-pause. Restore into QueueHold (not straight back into
-    # prompt_queue) and keep manual_paused on, so a crash/restart never
-    # silently resumes a queue the user deliberately paused.
+    # prompt_queue) so those jobs aren't silently lost.
     _recovered_held_items = load_held_items(_conn)
     if _recovered_held_items:
         _queue_hold.restore(_recovered_held_items)
-        _autopilot_state.set_manual_pause(True)
         for _item in _recovered_held_items:
             set_queue_item_status(_conn, prompt_id=_item[1], status="held")
         logger.warning(
             "[Smart Queue] Restored %d held job(s) after a restart — still paused, resume manually when ready.",
             len(_recovered_held_items),
         )
+
+    # manual_paused is persisted independently of held_items (spec §29 #11) —
+    # held_items can't cover a pause with nothing queued at the time (e.g.
+    # paused before submitting anything), which would otherwise silently
+    # resume on restart even though the user deliberately paused.
+    if load_manual_pause(_conn):
+        _autopilot_state.set_manual_pause(True)
+        if not _recovered_held_items:
+            logger.warning(
+                "[Smart Queue] Restored manual pause after a restart — resume manually when ready."
+            )
 
     _server.app.middlewares.append(create_queue_middleware(_autopilot_state, _is_autopilot_enabled))
     register_routes(

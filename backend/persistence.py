@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS held_items (
     order_index INTEGER NOT NULL,
     item_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS manual_pause_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    paused INTEGER NOT NULL
+);
 """
 
 
@@ -138,3 +142,21 @@ def save_held_items(conn: sqlite3.Connection, items: list[tuple]) -> None:
 def load_held_items(conn: sqlite3.Connection) -> list[tuple]:
     rows = conn.execute("SELECT item_json FROM held_items ORDER BY order_index ASC").fetchall()
     return [tuple(json.loads(row["item_json"])) for row in rows]
+
+
+def save_manual_pause(conn: sqlite3.Connection, paused: bool) -> None:
+    """Persists the manual-pause flag so a restart doesn't silently resume a
+    queue the user deliberately paused, even when nothing was in flight to
+    hold (spec §29 #11) — held_items alone can't cover that case since it's
+    only ever non-empty while something was actually queued during the pause."""
+    conn.execute(
+        "INSERT INTO manual_pause_state (id, paused) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET paused = excluded.paused",
+        (int(paused),),
+    )
+    conn.commit()
+
+
+def load_manual_pause(conn: sqlite3.Connection) -> bool:
+    row = conn.execute("SELECT paused FROM manual_pause_state WHERE id = 1").fetchone()
+    return bool(row["paused"]) if row else False
