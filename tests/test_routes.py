@@ -4,7 +4,7 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 from backend.persistence import init_db, add_queue_item, set_queue_item_status
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
-from backend.continue_registry import wait_for_continue
+from backend.continue_registry import InterruptProcessingException, wait_for_continue
 from backend.persistence import list_queue_items, load_held_items
 from backend.queue_hold import QueueHold
 from backend.routes import register_routes
@@ -230,6 +230,29 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
 
         await asyncio.wait_for(wait_task, timeout=2.0)
         assert released["done"] is True
+
+    @unittest_run_loop
+    async def test_cancel_wait_raises_interrupt_in_the_waiting_node(self):
+        import asyncio
+
+        prompt_id = "test-prompt-id-cancel"
+        result = {"exc": None}
+
+        async def waiter():
+            try:
+                await asyncio.to_thread(wait_for_continue, prompt_id)
+            except InterruptProcessingException as exc:
+                result["exc"] = exc
+
+        wait_task = asyncio.ensure_future(waiter())
+        await asyncio.sleep(0.05)
+        assert result["exc"] is None
+
+        resp = await self.client.post(f"/smart_queue/cancel_wait/{prompt_id}")
+        assert resp.status == 200
+
+        await asyncio.wait_for(wait_task, timeout=2.0)
+        assert isinstance(result["exc"], InterruptProcessingException)
 
     @unittest_run_loop
     async def test_post_rename_updates_item_name(self):

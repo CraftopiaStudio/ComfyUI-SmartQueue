@@ -93,6 +93,7 @@ class SmartCooldownNode(_NodeBase):
                 io.AnyType.Output("passthrough"),
                 io.String.Output("status"),
             ],
+            hidden=[io.Hidden.unique_id],
             is_output_node=True,
         )
 
@@ -128,6 +129,7 @@ class SmartCooldownNode(_NodeBase):
             prompt_id = PromptServer.instance.last_prompt_id
             PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
                 "prompt_id": prompt_id,
+                "node_id": cls.hidden.unique_id,
             })
             wait_for_continue(prompt_id)
             status += " | Continued by user click."

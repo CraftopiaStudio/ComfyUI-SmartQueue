@@ -8,7 +8,7 @@ from aiohttp import web
 
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
-from .continue_registry import signal_continue
+from .continue_registry import signal_cancel, signal_continue
 from .persistence import (
     add_queue_item,
     list_history,
@@ -180,6 +180,11 @@ def register_routes(
         signal_continue(prompt_id)
         return web.json_response({"ok": True})
 
+    async def post_cancel_wait(request: web.Request) -> web.Response:
+        prompt_id = request.match_info["prompt_id"]
+        signal_cancel(prompt_id)
+        return web.json_response({"ok": True})
+
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)
     app.router.add_post("/smart_queue/reorder", post_reorder)
@@ -187,6 +192,7 @@ def register_routes(
     app.router.add_get("/smart_queue/settings", get_settings)
     app.router.add_post("/smart_queue/settings", post_settings)
     app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
+    app.router.add_post("/smart_queue/cancel_wait/{prompt_id}", post_cancel_wait)
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
     app.router.add_post("/smart_queue/rename", post_rename)
     app.router.add_post("/smart_queue/cancel", post_cancel)
