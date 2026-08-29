@@ -176,3 +176,67 @@
     color: inherit;
     cursor: pointer;
 }
+
+#smart-queue-panel .smart-queue-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 4px 0;
+    padding: 4px 6px;
+    background: var(--comfy-input-bg, #222);
+    color: var(--input-text, #fff);
+    border: 1px solid var(--border-color, var(--p-content-border-color, #4e4e4e));
+    border-radius: 3px;
+    font: inherit;
+}
+
+#smart-queue-panel .smart-queue-rename-input {
+    width: 100%;
+    background: var(--comfy-input-bg, #222);
+    color: var(--input-text, #fff);
+    border: 1px solid var(--border-color, var(--p-content-border-color, #4e4e4e));
+    border-radius: 3px;
+    font: inherit;
+    padding: 1px 4px;
+}
+
+#smart-queue-panel .smart-queue-item-checkbox {
+    margin-right: 6px;
+}
+
+#smart-queue-panel .smart-queue-list li.smart-queue-dragging {
+    opacity: 0.4;
+}
+
+#smart-queue-panel .smart-queue-list li.smart-queue-drop-target {
+    border-top: 2px solid #0b8ce9;
+}
+
+.smart-queue-selection-bar {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--comfy-menu-bg, var(--p-content-background, #202020));
+    color: var(--fg-color, var(--p-text-color, #ddd));
+    border: 1px solid var(--border-color, var(--p-content-border-color, #444));
+    border-radius: 6px;
+    z-index: 10001;
+}
+
+.smart-queue-sel-btn {
+    background: var(--comfy-input-bg, #333);
+    color: inherit;
+    border: 1px solid var(--border-color, var(--p-content-border-color, #444));
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.smart-queue-sel-btn:hover {
+    filter: brightness(1.15);
+}

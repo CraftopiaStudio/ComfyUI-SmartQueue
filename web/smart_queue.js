@@ -64,6 +64,13 @@ app.registerExtension({
             defaultValue: false,
             category: ["SmartQueue", "4. Job count", "Give the GPU a break after a batch of jobs"],
         },
+        {
+            id: "SmartQueue.HistoryRetentionDays",
+            name: "Delete history older than this many days (0 = never)",
+            type: "number",
+            defaultValue: 30,
+            category: ["SmartQueue", "5. History", "Delete history older than this many days (0 = never)"],
+        },
     ],
     async setup() {
         if (!document.getElementById("smart-queue-stylesheet")) {
@@ -84,6 +91,7 @@ app.registerExtension({
                 min_free_vram_mb: app.extensionManager.setting.get("SmartQueue.MinFreeVramMb"),
                 job_count_rule_enabled: app.extensionManager.setting.get("SmartQueue.JobCountRuleEnabled"),
                 max_jobs_before_pause: app.extensionManager.setting.get("SmartQueue.MaxJobsBeforePause"),
+                history_retention_days: app.extensionManager.setting.get("SmartQueue.HistoryRetentionDays"),
             };
             try {
                 await fetch("/smart_queue/settings", {
@@ -236,8 +244,10 @@ app.registerExtension({
                         </div>
                         ${hasCrystools ? "" : '<div class="smart-queue-gpu-readout"></div>'}
                         <div class="smart-queue-section-title">Pending / running</div>
+                        <input type="text" class="smart-queue-search" id="smart-queue-search" placeholder="Search queue…">
                         <ul class="smart-queue-list" id="smart-queue-list"></ul>
                         <div class="smart-queue-section-title">History</div>
+                        <input type="text" class="smart-queue-search" id="smart-queue-history-search" placeholder="Search history…">
                         <ul class="smart-queue-list smart-queue-history" id="smart-queue-history"></ul>
                     </div>
                 `;
@@ -247,6 +257,124 @@ app.registerExtension({
                 panel.querySelector(".smart-queue-settings-btn").addEventListener("click", () => {
                     app.extensionManager.command.execute("Comfy.ShowSettingsDialog");
                 });
+
+                // ── Rename (adapted from comfyui-workfloworganizer's
+                // inlineRenameInTree: swap the label for an <input>, Enter
+                // commits, Escape/blur cancels) ──────────────────────────
+                // The periodic refreshQueueList (every 5s) rebuilds the list's
+                // innerHTML from scratch, which would destroy an in-progress
+                // rename <input> mid-edit (losing focus fires blur → cancel).
+                // Guard it with this flag while an edit is open.
+                let renameInProgress = false;
+
+                function startInlineRename(nameSpan, promptId, currentName) {
+                    const originalText = nameSpan.textContent;
+                    let committed = false;
+                    renameInProgress = true;
+
+                    const input = document.createElement("input");
+                    input.className = "smart-queue-rename-input";
+                    input.value = currentName;
+                    nameSpan.textContent = "";
+                    nameSpan.appendChild(input);
+
+                    const restore = (text) => { nameSpan.textContent = text; };
+
+                    const commit = async () => {
+                        if (committed) return;
+                        committed = true;
+                        renameInProgress = false;
+                        const value = input.value.trim();
+                        if (!value || value === currentName) { restore(originalText); return; }
+                        restore(value);
+                        try {
+                            await fetch("/smart_queue/rename", {
+                                method: "POST",
+                                body: JSON.stringify({ prompt_id: promptId, name: value }),
+                                headers: { "Content-Type": "application/json" },
+                            });
+                        } catch (err) {
+                            console.error("[Smart Queue] rename failed:", err);
+                            restore(originalText);
+                        }
+                    };
+
+                    const cancel = () => {
+                        if (committed) return;
+                        committed = true;
+                        renameInProgress = false;
+                        restore(originalText);
+                    };
+
+                    input.addEventListener("mousedown", (e) => e.stopPropagation());
+                    input.addEventListener("click", (e) => e.stopPropagation());
+                    input.addEventListener("keydown", async (e) => {
+                        if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); await commit(); }
+                        else if (e.key === "Escape") { e.stopPropagation(); cancel(); }
+                    });
+                    input.addEventListener("blur", cancel);
+
+                    requestAnimationFrame(() => { input.focus(); input.select(); });
+                }
+
+                // ── Multi-select + bulk cancel/requeue (adapted from
+                // comfyui-workfloworganizer's selectedPaths/selection-bar
+                // pattern, scoped to prompt_ids instead of file paths) ────
+                const selectedPromptIds = new Set();
+                let selectionBarEl = null;
+
+                function updateSelectionBar() {
+                    const n = selectedPromptIds.size;
+                    if (n === 0) {
+                        if (selectionBarEl) { selectionBarEl.remove(); selectionBarEl = null; }
+                        return;
+                    }
+                    if (!selectionBarEl) {
+                        selectionBarEl = document.createElement("div");
+                        selectionBarEl.className = "smart-queue-selection-bar";
+                        selectionBarEl.innerHTML = `
+                            <span class="smart-queue-sel-count"></span>
+                            <button type="button" class="smart-queue-sel-btn" data-action="cancel">Cancel</button>
+                            <button type="button" class="smart-queue-sel-btn" data-action="requeue">Cancel &amp; Requeue</button>
+                        `;
+                        document.body.appendChild(selectionBarEl);
+                        selectionBarEl.querySelector('[data-action="cancel"]').addEventListener("click", () => runBulkCancel(false));
+                        selectionBarEl.querySelector('[data-action="requeue"]').addEventListener("click", () => runBulkCancel(true));
+                    }
+                    selectionBarEl.querySelector(".smart-queue-sel-count").textContent = `${n} selected`;
+                }
+
+                async function runBulkCancel(requeue) {
+                    const prompt_ids = [...selectedPromptIds];
+                    selectedPromptIds.clear();
+                    updateSelectionBar();
+                    try {
+                        const res = await fetch("/smart_queue/cancel", {
+                            method: "POST",
+                            body: JSON.stringify({ prompt_ids, requeue }),
+                            headers: { "Content-Type": "application/json" },
+                        });
+                        const data = await res.json();
+                        if (app.extensionManager?.toast) {
+                            app.extensionManager.toast.add({
+                                severity: "success",
+                                summary: requeue ? "Requeued" : "Cancelled",
+                                detail: requeue
+                                    ? `${data.requeued} job(s) moved to the back.`
+                                    : `${data.cancelled} job(s) cancelled.`,
+                            });
+                        }
+                    } catch (err) {
+                        console.error("[Smart Queue] bulk cancel failed:", err);
+                    }
+                    await refreshQueueList();
+                }
+
+                // ── Drag-to-reorder (adapted from comfyui-workfloworganizer's
+                // dragData-based native HTML5 drag/drop) — this actually
+                // renumbers ComfyUI's real queue via /smart_queue/reorder,
+                // not just the panel's own display order. ──────────────────
+                let dragSourceId = null;
 
                 async function refreshStatus() {
                     try {
@@ -275,8 +403,11 @@ app.registerExtension({
                 }
 
                 async function refreshQueueList() {
+                    if (renameInProgress) return;
                     try {
-                        const res = await fetch("/smart_queue/queue");
+                        const q = panel.querySelector("#smart-queue-search").value.trim();
+                        const url = q ? `/smart_queue/queue?name=${encodeURIComponent(q)}` : "/smart_queue/queue";
+                        const res = await fetch(url);
                         const data = await res.json();
                         const listEl = panel.querySelector("#smart-queue-list");
                         listEl.innerHTML = "";
@@ -288,13 +419,72 @@ app.registerExtension({
                             li.draggable = true;
                             li.dataset.promptId = item.prompt_id;
                             li.classList.toggle("smart-queue-item-held", item.status === "held");
+
+                            const checkbox = document.createElement("input");
+                            checkbox.type = "checkbox";
+                            checkbox.className = "smart-queue-item-checkbox";
+                            checkbox.checked = selectedPromptIds.has(item.prompt_id);
+                            checkbox.addEventListener("click", (e) => e.stopPropagation());
+                            checkbox.addEventListener("change", () => {
+                                if (checkbox.checked) selectedPromptIds.add(item.prompt_id);
+                                else selectedPromptIds.delete(item.prompt_id);
+                                updateSelectionBar();
+                            });
+                            li.appendChild(checkbox);
+
                             if (item.status === "held") {
                                 const badge = document.createElement("span");
                                 badge.className = "smart-queue-held-badge";
                                 badge.textContent = "held";
                                 li.appendChild(badge);
                             }
-                            li.appendChild(document.createTextNode(item.name));
+
+                            const nameSpan = document.createElement("span");
+                            nameSpan.className = "smart-queue-item-name";
+                            nameSpan.textContent = item.name;
+                            nameSpan.addEventListener("dblclick", (e) => {
+                                e.stopPropagation();
+                                startInlineRename(nameSpan, item.prompt_id, item.name);
+                            });
+                            li.appendChild(nameSpan);
+
+                            li.addEventListener("dragstart", () => {
+                                dragSourceId = item.prompt_id;
+                                li.classList.add("smart-queue-dragging");
+                            });
+                            li.addEventListener("dragend", () => {
+                                li.classList.remove("smart-queue-dragging");
+                                dragSourceId = null;
+                                listEl.querySelectorAll(".smart-queue-drop-target").forEach((el) => el.classList.remove("smart-queue-drop-target"));
+                            });
+                            li.addEventListener("dragover", (e) => {
+                                if (!dragSourceId || dragSourceId === item.prompt_id) return;
+                                e.preventDefault();
+                                li.classList.add("smart-queue-drop-target");
+                            });
+                            li.addEventListener("dragleave", () => li.classList.remove("smart-queue-drop-target"));
+                            li.addEventListener("drop", async (e) => {
+                                e.preventDefault();
+                                li.classList.remove("smart-queue-drop-target");
+                                if (!dragSourceId || dragSourceId === item.prompt_id) return;
+                                const ids = data.items.map((i) => i.prompt_id);
+                                const fromIdx = ids.indexOf(dragSourceId);
+                                const toIdx = ids.indexOf(item.prompt_id);
+                                dragSourceId = null;
+                                if (fromIdx === -1 || toIdx === -1) return;
+                                ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+                                try {
+                                    await fetch("/smart_queue/reorder", {
+                                        method: "POST",
+                                        body: JSON.stringify({ ordered_prompt_ids: ids }),
+                                        headers: { "Content-Type": "application/json" },
+                                    });
+                                } catch (err) {
+                                    console.error("[Smart Queue] reorder failed:", err);
+                                }
+                                await refreshQueueList();
+                            });
+
                             listEl.appendChild(li);
                         }
                     } catch (err) {
@@ -304,7 +494,9 @@ app.registerExtension({
 
                 async function refreshHistory() {
                     try {
-                        const res = await fetch("/smart_queue/history");
+                        const q = panel.querySelector("#smart-queue-history-search").value.trim();
+                        const url = q ? `/smart_queue/history?name=${encodeURIComponent(q)}` : "/smart_queue/history";
+                        const res = await fetch(url);
                         const data = await res.json();
                         const listEl = panel.querySelector("#smart-queue-history");
                         listEl.innerHTML = "";
@@ -321,6 +513,17 @@ app.registerExtension({
                     }
                 }
 
+                let searchDebounce;
+                panel.querySelector("#smart-queue-search").addEventListener("input", () => {
+                    clearTimeout(searchDebounce);
+                    searchDebounce = setTimeout(refreshQueueList, 250);
+                });
+                let historySearchDebounce;
+                panel.querySelector("#smart-queue-history-search").addEventListener("input", () => {
+                    clearTimeout(historySearchDebounce);
+                    historySearchDebounce = setTimeout(refreshHistory, 250);
+                });
+
                 const statusTimer = setInterval(refreshStatus, 3000);
                 const queueTimer = setInterval(refreshQueueList, 5000);
                 const historyTimer = setInterval(refreshHistory, 5000);
@@ -332,6 +535,7 @@ app.registerExtension({
                     clearInterval(statusTimer);
                     clearInterval(queueTimer);
                     clearInterval(historyTimer);
+                    if (selectionBarEl) { selectionBarEl.remove(); selectionBarEl = null; }
                 };
             },
         });
