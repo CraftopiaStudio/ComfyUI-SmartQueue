@@ -157,7 +157,11 @@ app.registerExtension({
                 const res = await fetch("/smart_queue/status");
                 const data = await res.json();
                 manualPaused = data.manual_paused;
-                btn.textContent = manualPaused ? "▶" : "⏸";
+                // Icon stays the pause glyph regardless of state — swapping to a
+                // play icon read as "click to start rendering" instead of "we're
+                // paused, click to resume", which was confusing. The highlighted
+                // background (smart-queue-toolbar-btn-paused) carries the state.
+                btn.textContent = "⏸";
                 btn.title = data.is_paused
                     ? `Paused — ${data.reasons.join("; ")}. Click to resume.`
                     : "Pause queue (Smart Queue)";
@@ -219,7 +223,14 @@ app.registerExtension({
                             const li = document.createElement("li");
                             li.draggable = true;
                             li.dataset.promptId = item.prompt_id;
-                            li.textContent = item.name;
+                            li.classList.toggle("smart-queue-item-held", item.status === "held");
+                            if (item.status === "held") {
+                                const badge = document.createElement("span");
+                                badge.className = "smart-queue-held-badge";
+                                badge.textContent = "held";
+                                li.appendChild(badge);
+                            }
+                            li.appendChild(document.createTextNode(item.name));
                             listEl.appendChild(li);
                         }
                     } catch (err) {

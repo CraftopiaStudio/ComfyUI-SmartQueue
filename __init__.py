@@ -15,7 +15,8 @@ from .backend.autopilot_loop import run_autopilot_tick
 from .backend.autopilot_state import AutopilotState
 from .backend.gpu_monitor import poll_gpu_metrics
 from .backend.nodes.cooldown import SmartCooldownNode
-from .backend.persistence import init_db
+from .backend.persistence import init_db, load_held_items, set_queue_item_status
+from .backend.queue_hold import QueueHold
 from .backend.queue_middleware import create_queue_middleware
 from .backend.queue_tracker import sync_queue_tracker
 from .backend.routes import register_routes
@@ -34,6 +35,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
 _autopilot_state = AutopilotState()
 _autopilot_settings = AutopilotSettings()
+_queue_hold = QueueHold()
 _seen_running: set = set()
 _seen_completed: set = set()
 
@@ -76,8 +78,32 @@ if _HAS_COMFY_SERVER:
     _conn = init_db(_db_path)
 
     _server = PromptServer.instance
+
+    # held_items is only ever non-empty while a manual pause is in effect (it's
+    # cleared on every release) — so finding rows here means the previous
+    # process stopped mid-pause. Restore into QueueHold (not straight back into
+    # prompt_queue) and keep manual_paused on, so a crash/restart never
+    # silently resumes a queue the user deliberately paused.
+    _recovered_held_items = load_held_items(_conn)
+    if _recovered_held_items:
+        _queue_hold.restore(_recovered_held_items)
+        _autopilot_state.set_manual_pause(True)
+        for _item in _recovered_held_items:
+            set_queue_item_status(_conn, prompt_id=_item[1], status="held")
+        logger.warning(
+            "[Smart Queue] Restored %d held job(s) after a restart — still paused, resume manually when ready.",
+            len(_recovered_held_items),
+        )
+
     _server.app.middlewares.append(create_queue_middleware(_autopilot_state, _is_autopilot_enabled))
-    register_routes(_server.app, _conn, _autopilot_state, _autopilot_settings)
+    register_routes(
+        _server.app,
+        _conn,
+        _autopilot_state,
+        _autopilot_settings,
+        queue_hold=_queue_hold,
+        prompt_queue=_server.prompt_queue,
+    )
 
     async def _start_autopilot_loop(app):
         app["smart_queue_autopilot_task"] = asyncio.create_task(_autopilot_background_loop(_conn))

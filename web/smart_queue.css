@@ -71,6 +71,23 @@
     cursor: grab;
 }
 
+#smart-queue-panel .smart-queue-list li.smart-queue-item-held {
+    opacity: 0.75;
+    border-left: 2px solid var(--error-text, #e06c75);
+}
+
+#smart-queue-panel .smart-queue-held-badge {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--error-text, #e06c75);
+    color: #fff;
+}
+
 #smart-queue-panel .smart-queue-history li {
     cursor: default;
     opacity: 0.8;
@@ -106,6 +123,7 @@
 .smart-queue-toolbar-btn-paused {
     background: var(--error-text, #e06c75);
     color: #fff;
+    box-shadow: 0 0 0 2px var(--error-text, #e06c75), 0 0 6px 1px var(--error-text, #e06c75);
 }
 
 .smart-queue-continue-overlay {

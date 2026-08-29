@@ -5,7 +5,29 @@ from backend.persistence import init_db, add_queue_item
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
 from backend.continue_registry import wait_for_continue
+from backend.persistence import load_held_items
+from backend.queue_hold import QueueHold
 from backend.routes import register_routes
+
+
+class FakePromptQueue:
+    def __init__(self, queue=None):
+        self.queue = list(queue or [])
+        self.put_calls = []
+
+    def get_current_queue_volatile(self):
+        return ([], list(self.queue))
+
+    def delete_queue_item(self, function):
+        for i, item in enumerate(self.queue):
+            if function(item):
+                self.queue.pop(i)
+                return True
+        return False
+
+    def put(self, item):
+        self.put_calls.append(item)
+        self.queue.append(item)
 
 
 class TestSmartQueueRoutes(AioHTTPTestCase):
@@ -13,8 +35,13 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         self.conn = init_db(":memory:")
         self.state = AutopilotState()
         self.settings = AutopilotSettings()
+        self.queue_hold = QueueHold()
+        self.prompt_queue = FakePromptQueue()
         app = web.Application()
-        register_routes(app, self.conn, self.state, self.settings)
+        register_routes(
+            app, self.conn, self.state, self.settings,
+            queue_hold=self.queue_hold, prompt_queue=self.prompt_queue,
+        )
         return app
 
     @unittest_run_loop
@@ -86,6 +113,87 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         resp = await self.client.post("/smart_queue/manual_pause", json={"paused": False})
         assert resp.status == 200
         assert self.state.manual_paused is False
+
+    @unittest_run_loop
+    async def test_manual_pause_holds_pending_prompt_queue_items(self):
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {}), (2.0, "b", {}, {}, [], {})]
+
+        resp = await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+        body = await resp.json()
+
+        assert body["held"] == 2
+        assert self.prompt_queue.queue == []
+        assert self.queue_hold.has_held is True
+
+    @unittest_run_loop
+    async def test_manual_resume_releases_held_items_back_into_prompt_queue(self):
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        resp = await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+        body = await resp.json()
+
+        assert body["released"] == 1
+        assert [item[1] for item in self.prompt_queue.put_calls] == ["a"]
+        assert self.queue_hold.has_held is False
+
+    @unittest_run_loop
+    async def test_manual_pause_mirrors_held_items_into_sqlite_for_crash_recovery(self):
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+        assert [item[1] for item in load_held_items(self.conn)] == ["a"]
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+        assert load_held_items(self.conn) == []
+
+    @unittest_run_loop
+    async def test_manual_pause_keeps_never_synced_items_visible_in_panel_queue(self):
+        # A job the periodic queue_tracker tick hasn't synced into queue_items
+        # yet (it's only ever lived in ComfyUI's own PromptQueue) must still
+        # show up in the Smart Queue panel once it's held, not vanish.
+        extra_data = {"extra_pnginfo": {"workflow": {"extra": {"workflow_name": "Cyberpunk Cat"}}}}
+        self.prompt_queue.queue = [(1.0, "never-synced", {}, extra_data, [], {})]
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        resp = await self.client.get("/smart_queue/queue")
+        body = await resp.json()
+        assert [item["prompt_id"] for item in body["items"]] == ["never-synced"]
+        assert body["items"][0]["name"] == "Cyberpunk Cat"
+
+    @unittest_run_loop
+    async def test_manual_pause_does_not_duplicate_an_already_synced_item(self):
+        add_queue_item(self.conn, prompt_id="a", name="Already Synced")
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        resp = await self.client.get("/smart_queue/queue")
+        body = await resp.json()
+        assert [item["prompt_id"] for item in body["items"]] == ["a"]
+        assert body["items"][0]["name"] == "Already Synced"
+
+    @unittest_run_loop
+    async def test_manual_pause_marks_held_items_with_held_status(self):
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        resp = await self.client.get("/smart_queue/queue")
+        body = await resp.json()
+        assert body["items"][0]["status"] == "held"
+
+    @unittest_run_loop
+    async def test_manual_resume_reverts_status_back_to_pending(self):
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+
+        resp = await self.client.get("/smart_queue/queue")
+        body = await resp.json()
+        assert body["items"][0]["status"] == "pending"
 
     @unittest_run_loop
     async def test_continue_signals_a_waiting_node(self):
