@@ -20,6 +20,11 @@ class AutopilotSettings:
 
     vram_rule_enabled: bool = False
     min_free_vram_mb: float = 1024.0
+    # Hysteresis gap, mirroring pause_temp_c/resume_temp_c above: without it,
+    # free VRAM hovering right at min_free_vram_mb flips should_pause every
+    # 5s tick, and each flip is now an edge that hold/releases the live queue
+    # (spec §26.2). Must resume_free_vram_mb > min_free_vram_mb.
+    resume_free_vram_mb: float = 1536.0
 
     job_count_rule_enabled: bool = False
     max_jobs_before_pause: int = 20
@@ -71,9 +76,10 @@ def evaluate(
             reasons.append(f"GPU at {metrics.temp_c:.0f}C, target {threshold:.0f}C")
 
     if settings.vram_rule_enabled and metrics.vram_free_mb is not None:
-        if metrics.vram_free_mb < settings.min_free_vram_mb:
+        vram_threshold = settings.resume_free_vram_mb if currently_paused else settings.min_free_vram_mb
+        if metrics.vram_free_mb < vram_threshold:
             reasons.append(
-                f"Only {metrics.vram_free_mb:.0f}MB VRAM free, below {settings.min_free_vram_mb:.0f}MB"
+                f"Only {metrics.vram_free_mb:.0f}MB VRAM free, below {vram_threshold:.0f}MB"
             )
 
     if settings.job_count_rule_enabled and jobs_since_resume >= settings.max_jobs_before_pause:

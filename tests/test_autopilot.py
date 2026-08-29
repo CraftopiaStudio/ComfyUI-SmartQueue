@@ -54,6 +54,25 @@ def test_low_free_vram_triggers_pause():
     assert "VRAM" in decision.reasons[0]
 
 
+def test_vram_hysteresis_keeps_paused_until_resume_threshold():
+    settings = AutopilotSettings(vram_rule_enabled=True, min_free_vram_mb=1024.0, resume_free_vram_mb=1536.0)
+    # already paused, freed up a bit but not yet past resume_free_vram_mb
+    decision = evaluate(
+        make_metrics(vram_used_mb=6800.0, vram_total_mb=8000.0),  # 1200MB free
+        jobs_since_resume=0, currently_paused=True, settings=settings,
+    )
+    assert decision.should_pause is True
+
+
+def test_vram_hysteresis_resumes_once_above_resume_threshold():
+    settings = AutopilotSettings(vram_rule_enabled=True, min_free_vram_mb=1024.0, resume_free_vram_mb=1536.0)
+    decision = evaluate(
+        make_metrics(vram_used_mb=6000.0, vram_total_mb=8000.0),  # 2000MB free
+        jobs_since_resume=0, currently_paused=True, settings=settings,
+    )
+    assert decision.should_pause is False
+
+
 def test_vram_rule_disabled_never_pauses_on_vram():
     settings = AutopilotSettings(vram_rule_enabled=False, min_free_vram_mb=1024.0)
     decision = evaluate(

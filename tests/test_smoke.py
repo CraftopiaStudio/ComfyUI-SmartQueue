@@ -29,10 +29,10 @@ def test_init_exposes_node_mappings():
     assert isinstance(module.NODE_DISPLAY_NAME_MAPPINGS, dict)
 
 
-def test_cooldown_node_registered_under_backward_compatible_id():
+def test_cooldown_node_registered_with_display_name():
     module = _load_init_module()
-    assert "RubzGpuCooldownNode" in module.NODE_CLASS_MAPPINGS
-    assert module.NODE_DISPLAY_NAME_MAPPINGS["RubzGpuCooldownNode"] == "Smart Cooldown & Pause"
+    assert "SmartCooldownNode" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["SmartCooldownNode"] == "Smart Cooldown & Pause"
 
 
 def test_web_directory_is_declared():

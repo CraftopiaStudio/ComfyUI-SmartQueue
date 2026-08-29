@@ -1,6 +1,4 @@
-"""Smart Cooldown & Pause node (V3 schema). Node type ID stays RubzGpuCooldownNode
-for backward compatibility with workflows saved against the old rubz-gpu-cooldown pack.
-"""
+"""Smart Cooldown & Pause node (V3 schema)."""
 
 from typing import Callable
 
@@ -85,7 +83,7 @@ class SmartCooldownNode(_NodeBase):
         if not _HAS_COMFY_IO:
             raise RuntimeError("comfy_api is not available in this environment")
         return io.Schema(
-            node_id="RubzGpuCooldownNode",
+            node_id="SmartCooldownNode",
             display_name="Smart Cooldown & Pause",
             category="utils",
             # Declared in the exact order the node should display them in —
@@ -201,11 +199,12 @@ class SmartCooldownNode(_NodeBase):
 
         if kwargs["wait_for_click"]:
             prompt_id = PromptServer.instance.last_prompt_id
+            node_id = cls.hidden.unique_id
             PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
                 "prompt_id": prompt_id,
-                "node_id": cls.hidden.unique_id,
+                "node_id": node_id,
             })
-            wait_for_continue(prompt_id)
+            wait_for_continue(prompt_id, node_id=node_id)
             status += " | Continued by user click."
 
         return io.NodeOutput(kwargs.get("passthrough"), status)

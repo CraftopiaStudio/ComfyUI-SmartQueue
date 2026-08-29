@@ -23,6 +23,7 @@ from .backend.persistence import (
     set_queue_item_status,
 )
 from .backend.queue_hold import QueueHold
+from .backend.queue_hold_sync import sync_queue_hold
 from .backend.queue_middleware import create_queue_middleware
 from .backend.queue_tracker import sync_queue_tracker
 from .backend.routes import register_routes
@@ -30,10 +31,10 @@ from .backend.routes import register_routes
 logger = logging.getLogger(__name__)
 
 NODE_CLASS_MAPPINGS = {
-    "RubzGpuCooldownNode": SmartCooldownNode,
+    "SmartCooldownNode": SmartCooldownNode,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "RubzGpuCooldownNode": "Smart Cooldown & Pause",
+    "SmartCooldownNode": "Smart Cooldown & Pause",
 }
 WEB_DIRECTORY = "./web"
 
@@ -81,6 +82,18 @@ async def _autopilot_background_loop(conn):
     while True:
         if _autopilot_settings.master_enabled:
             await run_autopilot_tick(_autopilot_state, _autopilot_settings, _async_poll_gpu_metrics)
+        try:
+            # Closes the gap the manual pause button already had covered:
+            # autopilot flipping is_paused used to only ever gate new
+            # POST /prompt submissions (backend/queue_middleware.py), so jobs
+            # already queued before the pause kept executing regardless — the
+            # exact "20 jobs queued, nobody watching" case the temperature/
+            # VRAM rules exist for. Shares the manual-pause route's
+            # QueueHold/edge-trigger machinery via sync_queue_hold rather than
+            # duplicating it (spec §26.2).
+            sync_queue_hold(conn, _autopilot_state, _queue_hold, _server.prompt_queue)
+        except Exception:
+            logger.warning("Smart Queue: autopilot queue-hold sync failed, skipping this tick", exc_info=True)
         try:
             # Sync sqlite3 connections are bound to the thread that created them
             # (this loop's thread), so this must run inline, not via asyncio.to_thread.

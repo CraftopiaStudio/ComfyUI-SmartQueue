@@ -7,9 +7,10 @@ const SOUND_FILES = {
     Alert: "sounds/alert.wav",
 };
 
-const COOLDOWN_NODE_CLASS = "RubzGpuCooldownNode";
+const COOLDOWN_NODE_CLASS = "SmartCooldownNode";
 const BLINK_COLOR = "#8b6914";
 const BLINK_INTERVAL_MS = 500;
+const PENDING_RECONCILE_INTERVAL_MS = 3000;
 
 // Widgets, in schema-input order, that each collapsible section starts at —
 // used to insert the section header above the right widget without hardcoding
@@ -412,6 +413,43 @@ app.registerExtension({
         updateVisibility();
     },
     async setup() {
+        // The cooldown_wait_for_click socket event below fires exactly once, at
+        // the moment a node starts waiting. It's missed outright by a page
+        // reload, and swallowed silently if this wasn't the active workflow
+        // tab at the time (getNodeById on app.graph finds nothing to arm) —
+        // either way the node is left blocked server-side with no client-side
+        // way to notice, let alone re-arm its Continue/Cancel buttons (spec
+        // §26.2). Polling the backend's own truth catches both: a reload gets
+        // it on the next tick, and a tab left inactive during the event
+        // catches up as soon as it's switched back to and app.graph points at
+        // it again.
+        const reconcilePendingWaits = async () => {
+            let items;
+            try {
+                const resp = await fetch("/smart_queue/pending_waits");
+                ({ items } = await resp.json());
+            } catch (err) {
+                return; // transient network/server hiccup — try again next tick
+            }
+            const waitingNodeIds = new Set(items.map((item) => String(item.node_id)));
+
+            for (const node of app.graph.nodes) {
+                if (node.comfyClass !== COOLDOWN_NODE_CLASS || !node._smartQueueWaitWidgets) continue;
+                const id = String(node.id);
+                const isWaiting = waitingNodeIds.has(id);
+                if (isWaiting === pending.has(id)) continue; // already in sync
+
+                if (isWaiting) {
+                    const item = items.find((entry) => String(entry.node_id) === id);
+                    pending.set(id, { promptId: item.prompt_id });
+                } else {
+                    pending.delete(id);
+                }
+                setNodeWaiting(node, isWaiting);
+            }
+        };
+        setInterval(reconcilePendingWaits, PENDING_RECONCILE_INTERVAL_MS);
+
         api.addEventListener("smart_queue.cooldown_notify", (event) => {
             const { notify_sound, notify_sound_choice, custom_sound_path, notify_toast, status } = event.detail;
 

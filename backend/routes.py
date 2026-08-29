@@ -8,18 +8,16 @@ from aiohttp import web
 
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
-from .continue_registry import signal_cancel, signal_continue
+from .continue_registry import list_pending, signal_cancel, signal_continue
 from .native_dialog import browse_path
 from .sound_library import import_sound
 from .persistence import (
-    add_queue_item,
     list_history,
     list_queue_items,
     remove_queue_item,
     rename_queue_item,
     reorder_queue_items,
     save_held_items,
-    set_queue_item_status,
 )
 from .queue_hold import (
     QueueHold,
@@ -27,7 +25,7 @@ from .queue_hold import (
     reorder_pending_queue,
     requeue_item_at_back,
 )
-from .queue_tracker import extract_job_name
+from .queue_hold_sync import sync_queue_hold
 
 
 def register_routes(
@@ -52,33 +50,21 @@ def register_routes(
 
     async def post_manual_pause(request: web.Request) -> web.Response:
         payload = await request.json()
-        was_paused = state.manual_paused
-        now_paused = bool(payload.get("paused", True))
-        state.set_manual_pause(now_paused)
+        state.set_manual_pause(bool(payload.get("paused", True)))
 
         held = released = 0
         if queue_hold is not None and prompt_queue is not None:
-            if now_paused and not was_paused:
-                held = queue_hold.hold_pending(prompt_queue)
-                save_held_items(conn, queue_hold.items)
-                # A held item may never have been synced into queue_items by
-                # the periodic queue_tracker tick (backend/queue_tracker.py) —
-                # e.g. paused within the same tick window it was submitted in.
-                # Without this it silently drops out of the panel's list even
-                # though it's safely held.
-                known_ids = {row["prompt_id"] for row in list_queue_items(conn)}
-                for item in queue_hold.items:
-                    prompt_id = item[1]
-                    if prompt_id not in known_ids:
-                        extra_data = item[3] if len(item) > 3 else {}
-                        add_queue_item(conn, prompt_id=prompt_id, name=extract_job_name(extra_data))
-                    set_queue_item_status(conn, prompt_id=prompt_id, status="held")
-            elif was_paused and not now_paused:
-                held_snapshot = queue_hold.items
-                released = queue_hold.release_held(prompt_queue)
-                save_held_items(conn, queue_hold.items)
-                for item in held_snapshot:
-                    set_queue_item_status(conn, prompt_id=item[1], status="pending")
+            # Shared with the autopilot loop (backend/queue_hold_sync.py) so a
+            # pause from either source holds/releases already-queued jobs the
+            # same way, on one combined effective_paused edge-trigger rather
+            # than each source tracking its own was_paused/now_paused — two
+            # independent trackers would double-hold or release too early
+            # whenever manual and autopilot pauses overlap (spec §26.2).
+            transition, count = sync_queue_hold(conn, state, queue_hold, prompt_queue)
+            if transition == "held":
+                held = count
+            elif transition == "released":
+                released = count
 
         return web.json_response({
             "ok": True,
@@ -204,6 +190,9 @@ def register_routes(
         signal_cancel(prompt_id)
         return web.json_response({"ok": True})
 
+    async def get_pending_waits(request: web.Request) -> web.Response:
+        return web.json_response({"items": list_pending()})
+
     async def post_browse_sound_file(request: web.Request) -> web.Response:
         # import_sound copies the pick into web/sounds/custom and returns a
         # path relative to web/ — the browser cannot load a raw filesystem
@@ -223,6 +212,7 @@ def register_routes(
     app.router.add_post("/smart_queue/settings", post_settings)
     app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
     app.router.add_post("/smart_queue/cancel_wait/{prompt_id}", post_cancel_wait)
+    app.router.add_get("/smart_queue/pending_waits", get_pending_waits)
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
     app.router.add_post("/smart_queue/rename", post_rename)
     app.router.add_post("/smart_queue/cancel", post_cancel)

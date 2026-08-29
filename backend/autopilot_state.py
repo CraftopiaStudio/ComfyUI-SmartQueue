@@ -14,6 +14,13 @@ class AutopilotState:
         # Monotonic timestamp the job-count break began, or None outside one.
         # The clock itself lives in autopilot_loop (this class stays I/O-free).
         self.break_started_at: float | None = None
+        # Tracks the last value consume_effective_pause_transition() reported,
+        # so either pause source (manual click or an autopilot tick) can share
+        # one edge-trigger on the combined effective_paused instead of each
+        # tracking its own was_paused/now_paused independently — two
+        # independent trackers would double-hold or release too early
+        # whenever both sources are active at once (spec §26.2).
+        self._last_effective_paused: bool = False
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused
@@ -56,3 +63,15 @@ class AutopilotState:
         if self.manual_paused:
             reasons = ("Manually paused",) + reasons
         return reasons
+
+    def consume_effective_pause_transition(self) -> str | None:
+        """Call after any change to is_paused or manual_paused. Returns
+        "held" the first time effective_paused becomes True, "released" the
+        first time it becomes False again, or None if it's unchanged since
+        the last call — including while it stays True/False across a change
+        in *which* source (manual vs. autopilot) is responsible."""
+        now = self.effective_paused
+        if now == self._last_effective_paused:
+            return None
+        self._last_effective_paused = now
+        return "held" if now else "released"
