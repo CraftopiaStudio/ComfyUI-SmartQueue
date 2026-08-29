@@ -65,3 +65,63 @@ class QueueHold:
         for item in released:
             prompt_queue.put(item)
         return len(released)
+
+
+def cancel_queue_item(prompt_queue: _PromptQueueLike, prompt_id: str) -> tuple | None:
+    """Removes prompt_id from the pending queue if present. Never touches a
+    currently-running job — delete_queue_item only searches PromptQueue.queue,
+    which excludes currently_running by construction."""
+    result: list = []
+
+    def _match(item):
+        if item[1] == prompt_id:
+            result.append(item)
+            return True
+        return False
+
+    if prompt_queue.delete_queue_item(_match):
+        return result[0]
+    return None
+
+
+def requeue_item_at_back(prompt_queue: _PromptQueueLike, item: tuple) -> None:
+    """Re-inserts item with a number higher than every currently-queued item,
+    so it executes last. PromptQueue.queue is heap-ordered by item[0] — simply
+    calling .put() with the item's original number would NOT move it to the
+    back, since the heap doesn't care about insertion order."""
+    _, queued = prompt_queue.get_current_queue_volatile()
+    max_number = max((existing[0] for existing in queued), default=item[0] - 1)
+    new_number = max(max_number + 1, item[0])
+    prompt_queue.put((new_number,) + tuple(item[1:]))
+
+
+def reorder_pending_queue(prompt_queue: _PromptQueueLike, ordered_prompt_ids: list[str]) -> int:
+    """Renumbers every pending item so PromptQueue's heap executes them in
+    ordered_prompt_ids order. Removing and re-`put`-ting a tuple unchanged
+    would NOT do this — the heap orders strictly by item[0], not by put()
+    call order — so each item gets a fresh, strictly increasing number
+    starting from the lowest number currently in the queue.
+
+    Any queued prompt_id absent from ordered_prompt_ids keeps its relative
+    order among the leftovers and is appended after the named ones, rather
+    than being dropped or racing to the front."""
+    _, queued = prompt_queue.get_current_queue_volatile()
+    if not queued:
+        return 0
+
+    queued_sorted = sorted(queued, key=lambda x: x[0])
+    base_number = queued_sorted[0][0]
+    by_id = {item[1]: item for item in queued_sorted}
+
+    named = [by_id[pid] for pid in ordered_prompt_ids if pid in by_id]
+    named_ids = {item[1] for item in named}
+    leftovers = [item for item in queued_sorted if item[1] not in named_ids]
+    target_order = named + leftovers
+
+    touched = 0
+    for offset, item in enumerate(target_order):
+        prompt_id = item[1]
+        if prompt_queue.delete_queue_item(lambda x, pid=prompt_id: x[1] == pid):
+            prompt_queue.put((base_number + offset,) + tuple(item[1:]))
+            touched += 1
+    return touched

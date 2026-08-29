@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -15,7 +16,12 @@ from .backend.autopilot_loop import run_autopilot_tick
 from .backend.autopilot_state import AutopilotState
 from .backend.gpu_monitor import poll_gpu_metrics
 from .backend.nodes.cooldown import SmartCooldownNode
-from .backend.persistence import init_db, load_held_items, set_queue_item_status
+from .backend.persistence import (
+    delete_history_older_than,
+    init_db,
+    load_held_items,
+    set_queue_item_status,
+)
 from .backend.queue_hold import QueueHold
 from .backend.queue_middleware import create_queue_middleware
 from .backend.queue_tracker import sync_queue_tracker
@@ -66,6 +72,15 @@ async def _autopilot_background_loop(conn):
             _sync_queue_tracker_tick(conn)
         except Exception:
             logger.warning("Smart Queue: queue tracker sync failed, skipping this tick", exc_info=True)
+        try:
+            if _autopilot_settings.history_retention_days > 0:
+                cutoff = (
+                    datetime.now(timezone.utc)
+                    - timedelta(days=_autopilot_settings.history_retention_days)
+                ).isoformat()
+                delete_history_older_than(conn, cutoff)
+        except Exception:
+            logger.warning("Smart Queue: history auto-archive failed, skipping this tick", exc_info=True)
         await asyncio.sleep(TICK_INTERVAL_SECONDS)
 
 

@@ -13,11 +13,18 @@ from .persistence import (
     add_queue_item,
     list_history,
     list_queue_items,
+    remove_queue_item,
+    rename_queue_item,
     reorder_queue_items,
     save_held_items,
     set_queue_item_status,
 )
-from .queue_hold import QueueHold
+from .queue_hold import (
+    QueueHold,
+    cancel_queue_item,
+    reorder_pending_queue,
+    requeue_item_at_back,
+)
 from .queue_tracker import extract_job_name
 
 
@@ -79,15 +86,55 @@ def register_routes(
         })
 
     async def get_queue(request: web.Request) -> web.Response:
-        return web.json_response({"items": list_queue_items(conn)})
+        items = list_queue_items(
+            conn,
+            status=request.query.get("status"),
+            name_contains=request.query.get("name"),
+        )
+        return web.json_response({"items": items})
 
     async def post_reorder(request: web.Request) -> web.Response:
         payload = await request.json()
-        reorder_queue_items(conn, payload["ordered_prompt_ids"])
+        ordered_prompt_ids = payload["ordered_prompt_ids"]
+        reorder_queue_items(conn, ordered_prompt_ids)
+        if prompt_queue is not None:
+            reorder_pending_queue(prompt_queue, ordered_prompt_ids)
         return web.json_response({"ok": True})
 
+    async def post_rename(request: web.Request) -> web.Response:
+        payload = await request.json()
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return web.json_response({"error": "name must not be blank"}, status=400)
+        rename_queue_item(conn, prompt_id=payload["prompt_id"], name=name)
+        return web.json_response({"ok": True})
+
+    async def post_cancel(request: web.Request) -> web.Response:
+        payload = await request.json()
+        prompt_ids = payload.get("prompt_ids", [])
+        requeue = bool(payload.get("requeue", False))
+        cancelled = requeued = 0
+        if prompt_queue is not None:
+            for prompt_id in prompt_ids:
+                item = cancel_queue_item(prompt_queue, prompt_id)
+                if item is None:
+                    continue
+                cancelled += 1
+                if requeue:
+                    requeue_item_at_back(prompt_queue, item)
+                    requeued += 1
+                else:
+                    remove_queue_item(conn, prompt_id=prompt_id)
+        return web.json_response({"cancelled": cancelled, "requeued": requeued})
+
     async def get_history(request: web.Request) -> web.Response:
-        return web.json_response({"items": list_history(conn)})
+        items = list_history(
+            conn,
+            name_contains=request.query.get("name"),
+            date_from=request.query.get("date_from"),
+            date_to=request.query.get("date_to"),
+        )
+        return web.json_response({"items": items})
 
     async def get_settings(request: web.Request) -> web.Response:
         return web.json_response(asdict(settings))
@@ -110,3 +157,5 @@ def register_routes(
     app.router.add_post("/smart_queue/settings", post_settings)
     app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
+    app.router.add_post("/smart_queue/rename", post_rename)
+    app.router.add_post("/smart_queue/cancel", post_cancel)

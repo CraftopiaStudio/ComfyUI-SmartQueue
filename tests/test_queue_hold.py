@@ -1,4 +1,9 @@
-from backend.queue_hold import QueueHold
+from backend.queue_hold import (
+    QueueHold,
+    cancel_queue_item,
+    reorder_pending_queue,
+    requeue_item_at_back,
+)
 
 
 class FakePromptQueue:
@@ -119,3 +124,52 @@ def test_hold_pending_skips_item_that_vanishes_before_delete():
 
     assert count == 0
     assert hold.has_held is False
+
+
+def test_cancel_queue_item_removes_and_returns_it():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b")])
+    removed = cancel_queue_item(pq, "a")
+    assert removed[1] == "a"
+    assert [item[1] for item in pq.queue] == ["b"]
+
+
+def test_cancel_queue_item_returns_none_when_not_pending():
+    pq = FakePromptQueue(running=[make_item(0, "running")], queue=[])
+    assert cancel_queue_item(pq, "running") is None
+    assert cancel_queue_item(pq, "ghost") is None
+
+
+def test_requeue_item_at_back_gets_a_higher_number_than_everything_queued():
+    pq = FakePromptQueue(queue=[make_item(5, "a"), make_item(9, "b")])
+    item = make_item(1, "c")
+    requeue_item_at_back(pq, item)
+    put_item = pq.put_calls[0]
+    assert put_item[1] == "c"
+    assert put_item[0] > 9
+
+
+def test_requeue_item_at_back_on_empty_queue_keeps_its_own_number():
+    pq = FakePromptQueue(queue=[])
+    item = make_item(3, "solo")
+    requeue_item_at_back(pq, item)
+    assert pq.put_calls[0][0] == 3
+
+
+def test_reorder_pending_queue_renumbers_to_match_requested_order():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b"), make_item(3, "c")])
+    count = reorder_pending_queue(pq, ["c", "a", "b"])
+    assert count == 3
+    final_ids_by_number = sorted(pq.queue, key=lambda x: x[0])
+    assert [item[1] for item in final_ids_by_number] == ["c", "a", "b"]
+
+
+def test_reorder_pending_queue_appends_unlisted_items_after_named_ones():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b"), make_item(3, "c")])
+    reorder_pending_queue(pq, ["b"])
+    final_ids_by_number = sorted(pq.queue, key=lambda x: x[0])
+    assert [item[1] for item in final_ids_by_number] == ["b", "a", "c"]
+
+
+def test_reorder_pending_queue_on_empty_queue_returns_zero():
+    pq = FakePromptQueue(queue=[])
+    assert reorder_pending_queue(pq, ["a", "b"]) == 0

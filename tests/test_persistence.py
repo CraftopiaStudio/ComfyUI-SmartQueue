@@ -4,11 +4,13 @@ from backend.persistence import (
     list_queue_items,
     reorder_queue_items,
     remove_queue_item,
+    rename_queue_item,
     mark_completed,
     list_history,
     save_held_items,
     load_held_items,
     set_queue_item_status,
+    delete_history_older_than,
 )
 
 
@@ -130,3 +132,64 @@ def test_held_items_survive_reopening_the_same_file(tmp_path):
     assert len(loaded) == 1
     assert loaded[0][1] == "a"
     assert loaded[0][2] == {"k": "v"}
+
+
+def test_rename_queue_item_updates_name(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="Old Name")
+    rename_queue_item(conn, prompt_id="a", name="New Name")
+    items = list_queue_items(conn)
+    assert items[0]["name"] == "New Name"
+
+
+def test_rename_queue_item_nonexistent_prompt_id_is_a_noop(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    rename_queue_item(conn, prompt_id="ghost", name="New Name")
+    assert list_queue_items(conn) == []
+
+
+def test_list_queue_items_filters_by_status(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="First")
+    add_queue_item(conn, prompt_id="b", name="Second")
+    set_queue_item_status(conn, prompt_id="b", status="held")
+    held_only = list_queue_items(conn, status="held")
+    assert [item["prompt_id"] for item in held_only] == ["b"]
+
+
+def test_list_queue_items_filters_by_name_case_insensitive(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="Cyberpunk Cat")
+    add_queue_item(conn, prompt_id="b", name="Sunset Beach")
+    matches = list_queue_items(conn, name_contains="cyber")
+    assert [item["prompt_id"] for item in matches] == ["a"]
+
+
+def test_list_history_filters_by_name_and_date_range(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="Cyberpunk Cat")
+    mark_completed(conn, prompt_id="a")
+    conn.execute("UPDATE history SET completed_at = '2026-01-15T10:00:00+00:00' WHERE prompt_id = 'a'")
+    conn.commit()
+
+    assert len(list_history(conn, name_contains="cyber")) == 1
+    assert len(list_history(conn, name_contains="beach")) == 0
+    assert len(list_history(conn, date_from="2026-01-01", date_to="2026-01-31")) == 1
+    assert len(list_history(conn, date_from="2026-02-01")) == 0
+
+
+def test_delete_history_older_than_removes_only_old_rows(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="old", name="Old Job")
+    mark_completed(conn, prompt_id="old")
+    conn.execute("UPDATE history SET completed_at = '2020-01-01T00:00:00+00:00' WHERE prompt_id = 'old'")
+    add_queue_item(conn, prompt_id="new", name="New Job")
+    mark_completed(conn, prompt_id="new")
+    conn.execute("UPDATE history SET completed_at = '2099-01-01T00:00:00+00:00' WHERE prompt_id = 'new'")
+    conn.commit()
+
+    deleted = delete_history_older_than(conn, cutoff_iso="2026-01-01T00:00:00+00:00")
+
+    assert deleted == 1
+    remaining = [item["prompt_id"] for item in list_history(conn)]
+    assert remaining == ["new"]

@@ -1,11 +1,11 @@
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
-from backend.persistence import init_db, add_queue_item
+from backend.persistence import init_db, add_queue_item, set_queue_item_status
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
 from backend.continue_registry import wait_for_continue
-from backend.persistence import load_held_items
+from backend.persistence import list_queue_items, load_held_items
 from backend.queue_hold import QueueHold
 from backend.routes import register_routes
 
@@ -215,3 +215,78 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
 
         await asyncio.wait_for(wait_task, timeout=2.0)
         assert released["done"] is True
+
+    @unittest_run_loop
+    async def test_post_rename_updates_item_name(self):
+        add_queue_item(self.conn, prompt_id="a", name="Old Name")
+        resp = await self.client.post("/smart_queue/rename", json={"prompt_id": "a", "name": "New Name"})
+        assert resp.status == 200
+        resp2 = await self.client.get("/smart_queue/queue")
+        body = await resp2.json()
+        assert body["items"][0]["name"] == "New Name"
+
+    @unittest_run_loop
+    async def test_post_rename_rejects_blank_name(self):
+        add_queue_item(self.conn, prompt_id="a", name="Old Name")
+        resp = await self.client.post("/smart_queue/rename", json={"prompt_id": "a", "name": "   "})
+        assert resp.status == 400
+
+    @unittest_run_loop
+    async def test_get_queue_filters_by_status_query_param(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        set_queue_item_status(self.conn, prompt_id="b", status="held")
+        resp = await self.client.get("/smart_queue/queue?status=held")
+        body = await resp.json()
+        assert [item["prompt_id"] for item in body["items"]] == ["b"]
+
+    @unittest_run_loop
+    async def test_get_history_filters_by_name_query_param(self):
+        add_queue_item(self.conn, prompt_id="a", name="Cyberpunk Cat")
+        from backend.persistence import mark_completed
+        mark_completed(self.conn, prompt_id="a")
+        resp = await self.client.get("/smart_queue/history?name=cyber")
+        body = await resp.json()
+        assert len(body["items"]) == 1
+        resp2 = await self.client.get("/smart_queue/history?name=nomatch")
+        body2 = await resp2.json()
+        assert len(body2["items"]) == 0
+
+    @unittest_run_loop
+    async def test_cancel_removes_from_queue_and_db(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {}), (2.0, "b", {}, {}, [], {})]
+
+        resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["a"]})
+        body = await resp.json()
+
+        assert body["cancelled"] == 1
+        assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["b"]
+        assert [item[1] for item in self.prompt_queue.queue] == ["b"]
+
+    @unittest_run_loop
+    async def test_cancel_with_requeue_keeps_db_row_and_moves_it_to_the_back(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {})]
+
+        resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["a"], "requeue": True})
+        body = await resp.json()
+
+        assert body["cancelled"] == 1
+        assert body["requeued"] == 1
+        assert "a" in [item["prompt_id"] for item in list_queue_items(self.conn)]
+        assert self.prompt_queue.put_calls[-1][1] == "a"
+
+    @unittest_run_loop
+    async def test_reorder_renumbers_the_real_prompt_queue(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {}), (2.0, "b", {}, {}, [], {})]
+
+        resp = await self.client.post("/smart_queue/reorder", json={"ordered_prompt_ids": ["b", "a"]})
+        assert resp.status == 200
+
+        final_ids_by_number = sorted(self.prompt_queue.queue, key=lambda x: x[0])
+        assert [item[1] for item in final_ids_by_number] == ["b", "a"]
+        assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["b", "a"]

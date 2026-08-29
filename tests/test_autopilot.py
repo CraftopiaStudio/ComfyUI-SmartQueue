@@ -6,6 +6,11 @@ def make_metrics(temp_c=50.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pc
     return GpuMetrics(temp_c=temp_c, vram_used_mb=vram_used_mb, vram_total_mb=vram_total_mb, util_pct=util_pct)
 
 
+def test_default_history_retention_is_30_days():
+    settings = AutopilotSettings()
+    assert settings.history_retention_days == 30
+
+
 def test_no_rules_triggered_returns_no_pause():
     settings = AutopilotSettings()
     decision = evaluate(make_metrics(), jobs_since_resume=0, currently_paused=False, settings=settings)

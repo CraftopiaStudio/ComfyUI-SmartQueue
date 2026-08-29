@@ -24,6 +24,8 @@ class AutopilotSettings:
     job_count_rule_enabled: bool = False
     max_jobs_before_pause: int = 20
 
+    history_retention_days: int = 30
+
     def update_from_dict(self, values: dict) -> None:
         """Mutates in place so callers holding a reference (the background
         loop, the middleware's is_enabled closure) see updates immediately."""

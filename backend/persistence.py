@@ -52,8 +52,29 @@ def set_queue_item_status(conn: sqlite3.Connection, prompt_id: str, status: str)
     conn.commit()
 
 
-def list_queue_items(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute("SELECT * FROM queue_items ORDER BY order_index ASC").fetchall()
+def rename_queue_item(conn: sqlite3.Connection, prompt_id: str, name: str) -> None:
+    conn.execute("UPDATE queue_items SET name = ? WHERE prompt_id = ?", (name, prompt_id))
+    conn.commit()
+
+
+def list_queue_items(
+    conn: sqlite3.Connection,
+    status: str | None = None,
+    name_contains: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM queue_items"
+    clauses: list[str] = []
+    params: list = []
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+    if name_contains:
+        clauses.append("LOWER(name) LIKE ?")
+        params.append(f"%{name_contains.lower()}%")
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY order_index ASC"
+    rows = conn.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -79,11 +100,39 @@ def mark_completed(conn: sqlite3.Connection, prompt_id: str, thumbnail_path: str
     conn.commit()
 
 
-def list_history(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM history ORDER BY completed_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+def list_history(
+    conn: sqlite3.Connection,
+    limit: int = 50,
+    name_contains: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM history"
+    clauses: list[str] = []
+    params: list = []
+    if name_contains:
+        clauses.append("LOWER(name) LIKE ?")
+        params.append(f"%{name_contains.lower()}%")
+    if date_from:
+        clauses.append("completed_at >= ?")
+        params.append(date_from)
+    if date_to:
+        # completed_at is a full ISO timestamp; "< next day" makes date_to
+        # inclusive of the whole given day without reformatting it first.
+        clauses.append("completed_at < date(?, '+1 day')")
+        params.append(date_to)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY completed_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
     return [dict(row) for row in rows]
+
+
+def delete_history_older_than(conn: sqlite3.Connection, cutoff_iso: str) -> int:
+    cursor = conn.execute("DELETE FROM history WHERE completed_at < ?", (cutoff_iso,))
+    conn.commit()
+    return cursor.rowcount
 
 
 def save_held_items(conn: sqlite3.Connection, items: list[tuple]) -> None:
