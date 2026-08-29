@@ -131,6 +131,43 @@ def test_reorder_held_on_empty_hold_returns_zero():
     assert hold.reorder_held(["a", "b"]) == 0
 
 
+def test_cancel_held_removes_the_item_without_touching_prompt_queue():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b")])
+    hold = QueueHold()
+    hold.hold_pending(pq)
+
+    removed = hold.cancel_held("a")
+
+    assert removed[1] == "a"
+    assert [item[1] for item in hold.items] == ["b"]
+    assert pq.put_calls == []
+
+
+def test_cancel_held_returns_none_for_an_unheld_id():
+    hold = QueueHold()
+    hold.restore([(1.0, "a", {}, {}, [], {})])
+    assert hold.cancel_held("nope") is None
+    assert hold.has_held is True
+
+
+def test_requeue_held_at_back_moves_item_to_the_end_without_releasing_it():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b"), make_item(3, "c")])
+    hold = QueueHold()
+    hold.hold_pending(pq)
+
+    moved = hold.requeue_held_at_back("a")
+
+    assert moved is True
+    assert [item[1] for item in hold.items] == ["b", "c", "a"]
+    assert pq.put_calls == []
+
+
+def test_requeue_held_at_back_returns_false_for_an_unheld_id():
+    hold = QueueHold()
+    hold.restore([(1.0, "a", {}, {}, [], {})])
+    assert hold.requeue_held_at_back("nope") is False
+
+
 def test_restore_sets_held_items_without_touching_prompt_queue():
     pq = FakePromptQueue(queue=[])
     hold = QueueHold()

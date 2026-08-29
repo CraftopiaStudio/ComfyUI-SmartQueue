@@ -347,7 +347,12 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["running-job"]
 
     @unittest_run_loop
-    async def test_cancel_never_removes_a_currently_held_job(self):
+    async def test_cancel_prunes_a_held_job_from_queue_hold(self):
+        # Held items are skipped by cancel_queue_item (manual pause owns
+        # them, per §14), but the panel still offers Cancel on those rows —
+        # it used to silently no-op (spec §26.2). Cancelling now removes the
+        # job from QueueHold itself rather than touching prompt_queue, which
+        # a held item was never put into in the first place.
         add_queue_item(self.conn, prompt_id="held-job", name="Held")
         self.prompt_queue.queue = []
         self.queue_hold.restore([(1.0, "held-job", {}, {}, [], {})])
@@ -355,8 +360,27 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["held-job"]})
         body = await resp.json()
 
-        assert body["cancelled"] == 0
-        assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["held-job"]
+        assert body["cancelled"] == 1
+        assert list_queue_items(self.conn) == []
+        assert self.queue_hold.has_held is False
+
+    @unittest_run_loop
+    async def test_cancel_requeue_moves_a_held_job_to_the_back_of_the_held_list(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        self.prompt_queue.queue = []
+        self.queue_hold.restore([(1.0, "a", {}, {}, [], {}), (2.0, "b", {}, {}, [], {})])
+
+        resp = await self.client.post(
+            "/smart_queue/cancel", json={"prompt_ids": ["a"], "requeue": True}
+        )
+        body = await resp.json()
+
+        assert body["cancelled"] == 1
+        assert body["requeued"] == 1
+        assert [item[1] for item in self.queue_hold.items] == ["b", "a"]
+        # still held, not put into the live queue while paused
+        assert self.prompt_queue.queue == []
 
     @unittest_run_loop
     async def test_reorder_while_paused_changes_release_order_not_just_display_order(self):

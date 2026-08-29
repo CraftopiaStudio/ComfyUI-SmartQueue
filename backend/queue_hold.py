@@ -76,6 +76,29 @@ class QueueHold:
             prompt_queue.put((base_number + offset,) + tuple(item[1:]))
         return len(released)
 
+    def cancel_held(self, prompt_id: str) -> tuple | None:
+        """Removes prompt_id from held storage outright, without touching
+        prompt_queue. Held items are deliberately skipped by the live-queue
+        cancel path (manual pause owns them, per §14), which used to leave
+        Cancel on a held row silently doing nothing (spec §26.2) — this lets
+        a paused job actually be pruned instead of only ever released."""
+        for i, item in enumerate(self._held):
+            if item[1] == prompt_id:
+                return self._held.pop(i)
+        return None
+
+    def requeue_held_at_back(self, prompt_id: str) -> bool:
+        """Moves a held item to the back of the held list, mirroring
+        requeue_item_at_back's "cancel and move to the back" for a job that
+        hasn't been released into prompt_queue yet. Stays inside QueueHold
+        rather than putting the item into the live queue, which would let it
+        run immediately and defeat the pause it's being held under."""
+        for i, item in enumerate(self._held):
+            if item[1] == prompt_id:
+                self._held.append(self._held.pop(i))
+                return True
+        return False
+
     def reorder_held(self, ordered_prompt_ids: list[str]) -> int:
         """Rearranges the held items to release in ordered_prompt_ids order.
         Without this, dragging a held item in the panel only changed its

@@ -140,14 +140,31 @@ def register_routes(
             for prompt_id in prompt_ids:
                 item = cancel_queue_item(prompt_queue, prompt_id)
                 if item is None:
-                    # Not in the real pending queue. Still genuinely running or
-                    # held -> never touch it (matches "never interrupt a
-                    # running job" and manual pause's ownership of held items).
-                    # Otherwise it's an orphan: a tracked row whose underlying
-                    # ComfyUI job is gone for good (e.g. ComfyUI was restarted
-                    # while it was in flight) — remove the stale row so it
-                    # doesn't sit stuck in "pending" forever.
-                    if prompt_id in running_ids or prompt_id in held_ids:
+                    # Not in the real pending queue. Never touch a genuinely
+                    # running job (matches "never interrupt a running job").
+                    # A held job is prunable though: it can't be reached via
+                    # cancel_queue_item (manual pause owns it, per §14) but
+                    # the panel still offers Cancel on those rows, so handle
+                    # it against QueueHold directly instead of silently
+                    # no-oping (spec §26.2). Otherwise it's an orphan: a
+                    # tracked row whose underlying ComfyUI job is gone for
+                    # good (e.g. ComfyUI was restarted while it was in
+                    # flight) — remove the stale row so it doesn't sit stuck
+                    # in "pending" forever.
+                    if prompt_id in running_ids:
+                        continue
+                    if prompt_id in held_ids:
+                        if queue_hold is None:
+                            continue
+                        if requeue:
+                            if queue_hold.requeue_held_at_back(prompt_id):
+                                save_held_items(conn, queue_hold.items)
+                                cancelled += 1
+                                requeued += 1
+                        elif queue_hold.cancel_held(prompt_id) is not None:
+                            save_held_items(conn, queue_hold.items)
+                            remove_queue_item(conn, prompt_id=prompt_id)
+                            cancelled += 1
                         continue
                     remove_queue_item(conn, prompt_id=prompt_id)
                     cancelled += 1
