@@ -72,6 +72,9 @@ def sync_queue_tracker(
             history_item = entry.get("prompt") if isinstance(entry, dict) else None
             extra_data = history_item[3] if history_item and len(history_item) > 3 else {}
             add_queue_item(conn, prompt_id=prompt_id, name=extract_job_name(extra_data))
+            if prompt_id not in seen_running:
+                autopilot_state.record_job_started()
+                seen_running = seen_running | {prompt_id}
         mark_completed(conn, prompt_id=prompt_id)
         seen_completed = seen_completed | {prompt_id}
 

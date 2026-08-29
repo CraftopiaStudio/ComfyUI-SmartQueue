@@ -95,6 +95,25 @@ def test_sync_handles_job_that_starts_and_finishes_within_one_tick(tmp_path):
     assert len(history_rows) == 1
     assert history_rows[0]["prompt_id"] == "a"
     assert history_rows[0]["name"] == "Quick Render"
+    assert state.jobs_since_resume == 1
+
+
+def test_sync_does_not_double_count_job_seen_running_then_in_history(tmp_path):
+    """A job seen running on one tick and completed on the next must be counted once."""
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    running = [make_item("a")]
+
+    seen_running, seen_completed = sync_queue_tracker(
+        conn, running, [], history={}, autopilot_state=state, seen_running=set(), seen_completed=set()
+    )
+    assert state.jobs_since_resume == 1
+
+    sync_queue_tracker(
+        conn, [], [], history={"a": {"prompt": make_item("a")}},
+        autopilot_state=state, seen_running=seen_running, seen_completed=seen_completed,
+    )
+    assert state.jobs_since_resume == 1
 
 
 def test_sync_does_not_reprocess_already_completed_history_entries(tmp_path):
