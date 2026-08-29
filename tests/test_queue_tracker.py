@@ -116,6 +116,33 @@ def test_sync_does_not_double_count_job_seen_running_then_in_history(tmp_path):
     assert state.jobs_since_resume == 1
 
 
+def test_sync_prunes_seen_sets_to_what_comfyui_still_shows(tmp_path):
+    # seen_running/seen_completed used to grow for the process lifetime
+    # (spec §26.2) — once a job drops out of `running` and out of ComfyUI's
+    # own `history` dict, nothing needs to remember it anymore.
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    running = [make_item("a")]
+
+    seen_running, seen_completed = sync_queue_tracker(
+        conn, running, [], history={}, autopilot_state=state, seen_running=set(), seen_completed=set()
+    )
+    assert seen_running == {"a"}
+
+    seen_running, seen_completed = sync_queue_tracker(
+        conn, [], [], history={"a": {"prompt": make_item("a")}},
+        autopilot_state=state, seen_running=seen_running, seen_completed=seen_completed,
+    )
+    assert seen_running == set()
+    assert seen_completed == {"a"}
+
+    # ComfyUI's own history evicted "a": nothing left to forget it for.
+    seen_running, seen_completed = sync_queue_tracker(
+        conn, [], [], history={}, autopilot_state=state, seen_running=seen_running, seen_completed=seen_completed,
+    )
+    assert seen_completed == set()
+
+
 def test_sync_does_not_reprocess_already_completed_history_entries(tmp_path):
     conn = init_db(str(tmp_path / "test.sqlite3"))
     state = AutopilotState()

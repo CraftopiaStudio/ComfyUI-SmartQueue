@@ -78,4 +78,15 @@ def sync_queue_tracker(
         mark_completed(conn, prompt_id=prompt_id)
         seen_completed = seen_completed | {prompt_id}
 
+    # Bound both sets to what ComfyUI can still show us, instead of growing
+    # for the process lifetime (spec §26.2). A ended job is safe to forget
+    # from seen_running the moment it drops out of the running list — by
+    # then it's already in known_ids, so the history branch above can never
+    # re-trigger record_job_started() for it regardless of this set. A
+    # prompt_id is safe to forget from seen_completed once ComfyUI's own
+    # history dict no longer holds it, since that's the only place it could
+    # ever be seen again.
+    seen_running = seen_running & {item[1] for item in running}
+    seen_completed = seen_completed & set(history.keys())
+
     return seen_running, seen_completed
