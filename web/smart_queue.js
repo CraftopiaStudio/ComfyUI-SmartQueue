@@ -274,10 +274,21 @@ app.registerExtension({
                 // paused, click to resume", which was confusing. The highlighted
                 // background (smart-queue-toolbar-btn-paused) carries the state.
                 btn.textContent = "⏸";
-                btn.title = data.is_paused
-                    ? `Paused — ${data.reasons.join("; ")}. Click to resume.`
-                    : "Pause queue (Smart Queue)";
-                btn.classList.toggle("smart-queue-toolbar-btn-paused", data.is_paused);
+                // Label/highlight follow manual_paused, not the effective
+                // is_paused (autopilot OR manual) — the click handler only
+                // ever toggles manual_paused, so driving the tooltip from the
+                // effective state used to tell the user a click would resume
+                // when it actually engaged an additional manual pause on top
+                // of an autopilot one. The sidebar's status line already
+                // surfaces autopilot-only pauses with reasons.
+                if (data.manual_paused) {
+                    btn.title = `Paused — ${data.reasons.join("; ")}. Click to resume.`;
+                } else if (data.autopilot_paused) {
+                    btn.title = `Autopilot paused — ${data.reasons.join("; ")}. Click to pause manually too.`;
+                } else {
+                    btn.title = "Pause queue (Smart Queue)";
+                }
+                btn.classList.toggle("smart-queue-toolbar-btn-paused", data.manual_paused);
 
                 if (lastEffectivePaused !== null && data.is_paused !== lastEffectivePaused) {
                     notifyPauseStateChange(data.is_paused);
