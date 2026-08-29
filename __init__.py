@@ -44,8 +44,10 @@ _autopilot_settings = AutopilotSettings()
 _queue_hold = QueueHold()
 _seen_running: set = set()
 _seen_completed: set = set()
+_last_history_cleanup: datetime | None = None
 
 TICK_INTERVAL_SECONDS = 5.0
+HISTORY_CLEANUP_INTERVAL = timedelta(hours=1)
 
 
 async def _async_poll_gpu_metrics():
@@ -62,7 +64,20 @@ def _sync_queue_tracker_tick(conn) -> None:
     )
 
 
+def _should_run_history_cleanup(now, last_cleanup, retention_days: int) -> bool:
+    """Gates the DELETE in the loop below to roughly once an hour instead of
+    every 5s tick. A window measured in *days* doesn't need per-tick
+    precision, and a DELETE + commit on every tick was ~17,280 mostly-no-op
+    write transactions a day (spec §26.2)."""
+    if retention_days <= 0:
+        return False
+    if last_cleanup is None:
+        return True
+    return now - last_cleanup >= HISTORY_CLEANUP_INTERVAL
+
+
 async def _autopilot_background_loop(conn):
+    global _last_history_cleanup
     while True:
         if _autopilot_settings.master_enabled:
             await run_autopilot_tick(_autopilot_state, _autopilot_settings, _async_poll_gpu_metrics)
@@ -72,15 +87,14 @@ async def _autopilot_background_loop(conn):
             _sync_queue_tracker_tick(conn)
         except Exception:
             logger.warning("Smart Queue: queue tracker sync failed, skipping this tick", exc_info=True)
-        try:
-            if _autopilot_settings.history_retention_days > 0:
-                cutoff = (
-                    datetime.now(timezone.utc)
-                    - timedelta(days=_autopilot_settings.history_retention_days)
-                ).isoformat()
+        now = datetime.now(timezone.utc)
+        if _should_run_history_cleanup(now, _last_history_cleanup, _autopilot_settings.history_retention_days):
+            try:
+                cutoff = (now - timedelta(days=_autopilot_settings.history_retention_days)).isoformat()
                 delete_history_older_than(conn, cutoff)
-        except Exception:
-            logger.warning("Smart Queue: history auto-archive failed, skipping this tick", exc_info=True)
+                _last_history_cleanup = now
+            except Exception:
+                logger.warning("Smart Queue: history auto-archive failed, skipping this tick", exc_info=True)
         await asyncio.sleep(TICK_INTERVAL_SECONDS)
 
 
