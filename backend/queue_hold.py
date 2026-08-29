@@ -59,12 +59,39 @@ class QueueHold:
         self._held = list(items)
 
     def release_held(self, prompt_queue: _PromptQueueLike) -> int:
-        """Put every held item back into prompt_queue, in the order they
-        were originally submitted."""
+        """Put every held item back into prompt_queue, in _held's current
+        order (ascending original number unless reorder_held changed it).
+
+        Renumbers each item starting from the lowest original number rather
+        than re-`put`-ting the original tuples unchanged: PromptQueue.queue
+        is a heap ordered strictly by item[0], not by put() call order, so
+        without renumbering, a reorder_held() reordering would be silently
+        ignored on release — the heap would still execute items by their
+        old numbers, i.e. original submission order."""
         released, self._held = self._held, []
-        for item in released:
-            prompt_queue.put(item)
+        if not released:
+            return 0
+        base_number = min(item[0] for item in released)
+        for offset, item in enumerate(released):
+            prompt_queue.put((base_number + offset,) + tuple(item[1:]))
         return len(released)
+
+    def reorder_held(self, ordered_prompt_ids: list[str]) -> int:
+        """Rearranges the held items to release in ordered_prompt_ids order.
+        Without this, dragging a held item in the panel only changed its
+        SQLite display order — release_held would still put items back in
+        their original captured order, so a reorder made while paused was
+        silently discarded on resume. Any held prompt_id absent from
+        ordered_prompt_ids keeps its relative position, appended after the
+        named ones (mirrors reorder_pending_queue's leftover handling)."""
+        if not self._held:
+            return 0
+        by_id = {item[1]: item for item in self._held}
+        named = [by_id[pid] for pid in ordered_prompt_ids if pid in by_id]
+        named_ids = {item[1] for item in named}
+        leftovers = [item for item in self._held if item[1] not in named_ids]
+        self._held = named + leftovers
+        return len(named)
 
 
 def cancel_queue_item(prompt_queue: _PromptQueueLike, prompt_id: str) -> tuple | None:

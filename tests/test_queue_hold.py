@@ -99,6 +99,38 @@ def test_items_property_reflects_held_snapshot_in_order():
     assert [item[1] for item in hold.items] == ["a", "b"]
 
 
+def test_reorder_held_rearranges_release_order():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b"), make_item(3, "c")])
+    hold = QueueHold()
+    hold.hold_pending(pq)
+
+    count = hold.reorder_held(["c", "a", "b"])
+
+    assert count == 3
+    released = hold.release_held(pq)
+    assert released == 3
+    # Must check by actual number, not put()-call order: PromptQueue.queue is
+    # a heap ordered by item[0], so only the numbers themselves determine
+    # execution order.
+    put_ids_by_number = [item[1] for item in sorted(pq.put_calls, key=lambda x: x[0])]
+    assert put_ids_by_number == ["c", "a", "b"]
+
+
+def test_reorder_held_appends_unlisted_items_after_named_ones():
+    pq = FakePromptQueue(queue=[make_item(1, "a"), make_item(2, "b"), make_item(3, "c")])
+    hold = QueueHold()
+    hold.hold_pending(pq)
+
+    hold.reorder_held(["b"])
+
+    assert [item[1] for item in hold.items] == ["b", "a", "c"]
+
+
+def test_reorder_held_on_empty_hold_returns_zero():
+    hold = QueueHold()
+    assert hold.reorder_held(["a", "b"]) == 0
+
+
 def test_restore_sets_held_items_without_touching_prompt_queue():
     pq = FakePromptQueue(queue=[])
     hold = QueueHold()

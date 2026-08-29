@@ -99,6 +99,9 @@ def register_routes(
         reorder_queue_items(conn, ordered_prompt_ids)
         if prompt_queue is not None:
             reorder_pending_queue(prompt_queue, ordered_prompt_ids)
+        if queue_hold is not None and queue_hold.has_held:
+            queue_hold.reorder_held(ordered_prompt_ids)
+            save_held_items(conn, queue_hold.items)
         return web.json_response({"ok": True})
 
     async def post_rename(request: web.Request) -> web.Response:

@@ -279,6 +279,30 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert self.prompt_queue.put_calls[-1][1] == "a"
 
     @unittest_run_loop
+    async def test_reorder_while_paused_changes_release_order_not_just_display_order(self):
+        # Regression test: a reorder made while items are held used to only
+        # change the SQLite display order — release_held would still put
+        # items back in their original captured order on resume, silently
+        # discarding the reorder. Live-verified against a running ComfyUI
+        # instance (timestamps showed the dragged-to-front job actually ran
+        # second) before this fix.
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        self.prompt_queue.queue = [(1.0, "a", {}, {}, [], {}), (2.0, "b", {}, {}, [], {})]
+        await self.client.post("/smart_queue/manual_pause", json={"paused": True})
+
+        resp = await self.client.post("/smart_queue/reorder", json={"ordered_prompt_ids": ["b", "a"]})
+        assert resp.status == 200
+
+        await self.client.post("/smart_queue/manual_pause", json={"paused": False})
+        # Checking prompt_id order alone isn't enough: PromptQueue.queue is a
+        # heap ordered by item[0] (number), not by put() call order, so the
+        # numbers themselves must actually be renumbered ascending in the new
+        # order — a second real bug this same live-verification pass found.
+        put_ids_by_number = [item[1] for item in sorted(self.prompt_queue.put_calls, key=lambda x: x[0])]
+        assert put_ids_by_number == ["b", "a"]
+
+    @unittest_run_loop
     async def test_reorder_renumbers_the_real_prompt_queue(self):
         add_queue_item(self.conn, prompt_id="a", name="First")
         add_queue_item(self.conn, prompt_id="b", name="Second")
