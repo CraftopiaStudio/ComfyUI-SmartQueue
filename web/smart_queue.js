@@ -107,6 +107,48 @@ app.registerExtension({
         await syncSettingsToBackend();
         setInterval(syncSettingsToBackend, 10000);
 
+        // Tag the currently-open workflow tab's name onto the graph's own
+        // `extra` bag right before ComfyUI serializes and submits it, so
+        // queue_tracker.extract_job_name (backend/queue_tracker.py) picks
+        // it up on its very next tick via the exact `workflow.extra.
+        // workflow_name` field it already checks — no new endpoint, no
+        // race against that tick, no backend change needed. ComfyUI's own
+        // /prompt payload never includes the tab title on its own (that's
+        // pure frontend state, tracked by app.extensionManager.workflow,
+        // not part of the graph), which is why every job used to fall
+        // back to a timestamp-only name regardless of which workflow tab
+        // it came from. Independent of the "Enable Autopilot" toggle below
+        // (naming isn't a GPU-polling concern) and of the MCP/API queuing
+        // path (a /prompt call made outside the browser has no open tab to
+        // read a name from — same timestamp fallback as before).
+        const originalQueuePrompt = app.queuePrompt.bind(app);
+        app.queuePrompt = async (...args) => {
+            let tagged = false;
+            try {
+                const workflowName = app.extensionManager?.workflow?.activeWorkflow?.filename;
+                if (workflowName && app.graph?.extra) {
+                    // Matches queue_tracker.extract_job_name's own
+                    // "%Y-%m-%d %H:%M:%S" fallback format — the panel shows
+                    // no other timestamp next to a job's name, and history
+                    // can span up to the configured retention window (§17,
+                    // default 30 days), so a time-only suffix would be
+                    // ambiguous about which day a job ran.
+                    const now = new Date();
+                    const pad = (n) => String(n).padStart(2, "0");
+                    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}, ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+                    app.graph.extra.workflow_name = `${workflowName} [${stamp}]`;
+                    tagged = true;
+                }
+            } catch (err) {
+                console.error("[Smart Queue] failed to tag workflow name before queuing:", err);
+            }
+            try {
+                return await originalQueuePrompt(...args);
+            } finally {
+                if (tagged) delete app.graph.extra.workflow_name;
+            }
+        };
+
         const enabled = app.extensionManager.setting.get("SmartQueue.EnableAutopilot");
         if (!enabled) {
             console.log("[Smart Queue] Autopilot panel disabled via settings.");
@@ -136,7 +178,19 @@ app.registerExtension({
                 try {
                     const res = await fetch("/smart_queue/queue");
                     const data = await res.json();
-                    waiting = data.items.length;
+                    // Filter out the currently-running item(s) using the same
+                    // "running" status overlay get_queue already applies
+                    // (backend/routes.py) instead of subtracting a
+                    // separately-fetched running_count: that subtraction
+                    // raced two endpoints with different lag against each
+                    // other (running_count reads PromptQueue live; a row
+                    // only exists in /smart_queue/queue once queue_tracker's
+                    // ~5s tick has synced it in), so a job that started
+                    // running just before its own row synced could wrongly
+                    // zero out a genuinely-held job's count. Filtering a
+                    // single response has no such race — both the item list
+                    // and its "running" tag come from the same request.
+                    waiting = data.items.filter((item) => item.status !== "running").length;
                 } catch (err) {
                     console.error("[Smart Queue] queue fetch for pause toast failed:", err);
                 }
@@ -419,6 +473,7 @@ app.registerExtension({
                             li.draggable = true;
                             li.dataset.promptId = item.prompt_id;
                             li.classList.toggle("smart-queue-item-held", item.status === "held");
+                            li.classList.toggle("smart-queue-item-running", item.status === "running");
 
                             const checkbox = document.createElement("input");
                             checkbox.type = "checkbox";
@@ -436,6 +491,11 @@ app.registerExtension({
                                 const badge = document.createElement("span");
                                 badge.className = "smart-queue-held-badge";
                                 badge.textContent = "held";
+                                li.appendChild(badge);
+                            } else if (item.status === "running") {
+                                const badge = document.createElement("span");
+                                badge.className = "smart-queue-running-badge";
+                                badge.textContent = "running";
                                 li.appendChild(badge);
                             }
 

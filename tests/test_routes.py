@@ -68,6 +68,20 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert [item["prompt_id"] for item in body["items"]] == ["a", "b"]
 
     @unittest_run_loop
+    async def test_queue_marks_currently_running_item_without_persisting_it(self):
+        add_queue_item(self.conn, prompt_id="a", name="First")
+        add_queue_item(self.conn, prompt_id="b", name="Second")
+        self.prompt_queue.running = [(0, "a", {}, {}, [], {})]
+
+        resp = await self.client.get("/smart_queue/queue")
+        body = await resp.json()
+        by_id = {item["prompt_id"]: item["status"] for item in body["items"]}
+        assert by_id == {"a": "running", "b": "pending"}
+
+        # The overlay is display-only — the DB row itself is untouched.
+        assert [item["status"] for item in list_queue_items(self.conn) if item["prompt_id"] == "a"] == ["pending"]
+
+    @unittest_run_loop
     async def test_reorder_updates_queue_order(self):
         add_queue_item(self.conn, prompt_id="a", name="First")
         add_queue_item(self.conn, prompt_id="b", name="Second")

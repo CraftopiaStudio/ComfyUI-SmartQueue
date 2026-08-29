@@ -110,6 +110,22 @@
     color: #fff;
 }
 
+#smart-queue-panel .smart-queue-list li.smart-queue-item-running {
+    border-left: 2px solid #6bc46d;
+}
+
+#smart-queue-panel .smart-queue-running-badge {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: #6bc46d;
+    color: #fff;
+}
+
 #smart-queue-panel .smart-queue-history li {
     cursor: default;
     opacity: 0.8;

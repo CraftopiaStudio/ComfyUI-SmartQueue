@@ -91,6 +91,21 @@ def register_routes(
             status=request.query.get("status"),
             name_contains=request.query.get("name"),
         )
+        # queue_tracker never persists a "running" status onto a row (only
+        # "pending"/"held") — overlay it here at read time from the live
+        # PromptQueue instead, so a currently-executing job's row still
+        # shows "pending" in the DB (untouched, no extra write on every
+        # tick) but the panel can tell it apart from a job that's actually
+        # waiting behind the pause gate.
+        if prompt_queue is not None:
+            try:
+                running, _queued = prompt_queue.get_current_queue_volatile()
+                running_ids = {job[1] for job in running}
+            except Exception:
+                running_ids = set()
+            for item in items:
+                if item["prompt_id"] in running_ids:
+                    item["status"] = "running"
         return web.json_response({"items": items})
 
     async def post_reorder(request: web.Request) -> web.Response:
