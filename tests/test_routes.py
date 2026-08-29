@@ -11,12 +11,13 @@ from backend.routes import register_routes
 
 
 class FakePromptQueue:
-    def __init__(self, queue=None):
+    def __init__(self, queue=None, running=None):
         self.queue = list(queue or [])
+        self.running = list(running or [])
         self.put_calls = []
 
     def get_current_queue_volatile(self):
-        return ([], list(self.queue))
+        return (list(self.running), list(self.queue))
 
     def delete_queue_item(self, function):
         for i, item in enumerate(self.queue):
@@ -277,6 +278,48 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert body["requeued"] == 1
         assert "a" in [item["prompt_id"] for item in list_queue_items(self.conn)]
         assert self.prompt_queue.put_calls[-1][1] == "a"
+
+    @unittest_run_loop
+    async def test_cancel_removes_orphaned_row_whose_job_is_gone_from_comfyui(self):
+        # Regression test: found live when a job was still "pending" in
+        # PromptQueue.queue when ComfyUI's process was killed/restarted
+        # (e.g. an unclean restart) — the job is gone from ComfyUI for good,
+        # but the queue_items row is neither running, held, nor in
+        # prompt_queue.queue, so it used to sit stuck as "pending" forever
+        # and Cancel silently no-op'd on it (cancel_queue_item found nothing
+        # to remove from the real queue).
+        add_queue_item(self.conn, prompt_id="ghost", name="Orphaned Job")
+        self.prompt_queue.queue = []  # gone from the real queue entirely
+
+        resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["ghost"]})
+        body = await resp.json()
+
+        assert body["cancelled"] == 1
+        assert list_queue_items(self.conn) == []
+
+    @unittest_run_loop
+    async def test_cancel_never_removes_a_currently_running_job(self):
+        add_queue_item(self.conn, prompt_id="running-job", name="Still Running")
+        self.prompt_queue.queue = []
+        self.prompt_queue.running = [(1.0, "running-job", {}, {}, [], {})]
+
+        resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["running-job"]})
+        body = await resp.json()
+
+        assert body["cancelled"] == 0
+        assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["running-job"]
+
+    @unittest_run_loop
+    async def test_cancel_never_removes_a_currently_held_job(self):
+        add_queue_item(self.conn, prompt_id="held-job", name="Held")
+        self.prompt_queue.queue = []
+        self.queue_hold.restore([(1.0, "held-job", {}, {}, [], {})])
+
+        resp = await self.client.post("/smart_queue/cancel", json={"prompt_ids": ["held-job"]})
+        body = await resp.json()
+
+        assert body["cancelled"] == 0
+        assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["held-job"]
 
     @unittest_run_loop
     async def test_reorder_while_paused_changes_release_order_not_just_display_order(self):

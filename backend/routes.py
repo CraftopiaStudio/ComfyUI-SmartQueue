@@ -118,9 +118,22 @@ def register_routes(
         requeue = bool(payload.get("requeue", False))
         cancelled = requeued = 0
         if prompt_queue is not None:
+            held_ids = {item[1] for item in queue_hold.items} if queue_hold is not None else set()
+            running_ids = {item[1] for item in prompt_queue.get_current_queue_volatile()[0]}
             for prompt_id in prompt_ids:
                 item = cancel_queue_item(prompt_queue, prompt_id)
                 if item is None:
+                    # Not in the real pending queue. Still genuinely running or
+                    # held -> never touch it (matches "never interrupt a
+                    # running job" and manual pause's ownership of held items).
+                    # Otherwise it's an orphan: a tracked row whose underlying
+                    # ComfyUI job is gone for good (e.g. ComfyUI was restarted
+                    # while it was in flight) — remove the stale row so it
+                    # doesn't sit stuck in "pending" forever.
+                    if prompt_id in running_ids or prompt_id in held_ids:
+                        continue
+                    remove_queue_item(conn, prompt_id=prompt_id)
+                    cancelled += 1
                     continue
                 cancelled += 1
                 if requeue:
