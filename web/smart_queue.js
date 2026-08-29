@@ -117,6 +117,35 @@ app.registerExtension({
         // drop this manually-inserted node; a periodic check re-inserts it
         // if that ever happens.
         let manualPaused = false;
+        // null until the first status poll resolves, so we never fire a
+        // toast for the state ComfyUI happened to be in on page load.
+        let lastEffectivePaused = null;
+
+        async function notifyPauseStateChange(isPaused) {
+            if (!app.extensionManager?.toast) return;
+            if (isPaused) {
+                let waiting = 0;
+                try {
+                    const res = await fetch("/smart_queue/queue");
+                    const data = await res.json();
+                    waiting = data.items.length;
+                } catch (err) {
+                    console.error("[Smart Queue] queue fetch for pause toast failed:", err);
+                }
+                const jobWord = waiting === 1 ? "job" : "jobs";
+                app.extensionManager.toast.add({
+                    severity: "warn",
+                    summary: "Smart Queue paused",
+                    detail: `${waiting} ${jobWord} waiting. Manage them in the sidebar.`,
+                });
+            } else {
+                app.extensionManager.toast.add({
+                    severity: "success",
+                    summary: "Smart Queue resumed",
+                    detail: "The queue is running again.",
+                });
+            }
+        }
 
         function findToolbarRow() {
             const toggle = document.querySelector('[data-testid="queue-overlay-toggle"]');
@@ -179,6 +208,11 @@ app.registerExtension({
                     ? `Paused — ${data.reasons.join("; ")}. Click to resume.`
                     : "Pause queue (Smart Queue)";
                 btn.classList.toggle("smart-queue-toolbar-btn-paused", data.is_paused);
+
+                if (lastEffectivePaused !== null && data.is_paused !== lastEffectivePaused) {
+                    notifyPauseStateChange(data.is_paused);
+                }
+                lastEffectivePaused = data.is_paused;
             } catch (err) {
                 console.error("[Smart Queue] status fetch failed:", err);
             }
