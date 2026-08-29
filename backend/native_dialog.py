@@ -10,6 +10,7 @@ import concurrent.futures
 import subprocess
 import sys
 import threading
+from typing import Callable
 
 from aiohttp import web
 
@@ -138,8 +139,20 @@ $r
     return result.stdout.strip()
 
 
-async def browse_path(request: web.Request, *, pick_folder: bool, title: str) -> web.Response:
-    """Shared handler for a native folder/file picker endpoint."""
+async def browse_path(
+    request: web.Request,
+    *,
+    pick_folder: bool,
+    title: str,
+    transform: Callable[[str], str] | None = None,
+) -> web.Response:
+    """Shared handler for a native folder/file picker endpoint.
+
+    `transform` post-processes the picked path before it's returned (used by
+    the sound picker to copy the file into the extension's web dir and hand
+    back a browser-loadable relative path). A ValueError from it becomes a 400
+    with its message, so the UI can show why the pick was rejected.
+    """
     if request.remote not in ("127.0.0.1", "::1"):
         return web.json_response({"ok": False, "error": "forbidden"}, status=403)
 
@@ -165,5 +178,12 @@ async def browse_path(request: web.Request, *, pick_folder: bool, title: str) ->
     import os
     is_valid = os.path.isdir(path) if pick_folder else os.path.isfile(path)
     if path and is_valid:
+        if transform is not None:
+            try:
+                path = transform(path)
+            except ValueError as exc:
+                return web.json_response({"ok": False, "error": str(exc)}, status=400)
+            except OSError as exc:
+                return web.json_response({"ok": False, "error": f"Could not import file: {exc}"}, status=500)
         return web.json_response({"ok": True, "path": path})
     return web.json_response({"ok": False, "cancelled": True})

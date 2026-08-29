@@ -11,16 +11,44 @@ const COOLDOWN_NODE_CLASS = "RubzGpuCooldownNode";
 const BLINK_COLOR = "#8b6914";
 const BLINK_INTERVAL_MS = 500;
 
-// Widgets, in schema-input order, that make up the "Wait for click" and
-// "Notifications" sections — used to insert separator lines between groups
-// without hardcoding array indices that would drift if the schema changes.
-const WAIT_SECTION_FIRST_WIDGET = "wait_for_click";
+// Widgets, in schema-input order, that each collapsible section starts at —
+// used to insert the section header above the right widget without hardcoding
+// array indices that would drift if the schema changes.
+// OPTIONS starts at unload_models rather than wait_for_click: the VRAM
+// toggles are occasional switches too, not part of what the node is for, so
+// they belong in the drawer alongside it. cooldown.py declares them
+// contiguously for exactly this reason.
+const WAIT_SECTION_FIRST_WIDGET = "unload_models_before_wait";
 const NOTIFY_SECTION_FIRST_WIDGET = "notify_toast";
+
+const NOTIFY_SECTION = "NOTIFICATIONS";
+const WAIT_SECTION = "OPTIONS";
 
 // pending wait state, keyed by node id (string) -> { promptId }
 const pending = new Map();
 
 const DIVIDER_HEIGHT = 20;
+
+// Collapse state lives in node.properties, NOT in a widget. Widget values are
+// serialized and restored positionally over node.widgets (see §23 in the
+// design spec), so storing this as a widget would shift the indices of the
+// real schema-backed widgets and corrupt their values. properties is a plain
+// dict keyed by name, serialized with the node, and index-independent.
+function collapseKey(label) {
+    return `_sq_collapsed_${label}`;
+}
+
+function isCollapsed(node, label) {
+    const stored = node.properties?.[collapseKey(label)];
+    // Default collapsed: the whole point of the sections is that a fresh node
+    // is short.
+    return stored === undefined ? true : !!stored;
+}
+
+function setCollapsed(node, label, collapsed) {
+    if (!node.properties) node.properties = {};
+    node.properties[collapseKey(label)] = collapsed;
+}
 
 // Styled after ComfyUI-CraftKit's own section-header dividers
 // (js/shared/canvas_widgets.mjs::createDividerWidget) for a consistent look
@@ -29,12 +57,19 @@ const DIVIDER_HEIGHT = 20;
 // again with the graph zoom, which softens a thin line enough that #333
 // became invisible there (classic mode draws at native resolution and stayed
 // sharp) — CraftKit hit this first, so we match their fix.
-function addSeparator(node, label, beforeWidgetName) {
+//
+// CraftKit's own divider is explicitly draw-only; the click handling here
+// follows their one clickable canvas widget instead
+// (js/shared/preset_picker_widget.mjs), including its triggerDraw() workaround.
+function addSeparator(node, label, beforeWidgetName, onToggle) {
+    const collapsible = typeof onToggle === "function";
     const widget = {
         type: "custom",
         name: `_div_${label}`,
         value: null,
-        options: {},
+        options: { serialize: false },
+        // Node-local y range of the row as last drawn, for the click hit test.
+        _hitY: [0, 0],
         computeSize(width) {
             return [width, DIVIDER_HEIGHT];
         },
@@ -42,15 +77,18 @@ function addSeparator(node, label, beforeWidgetName) {
             const w = drawNode?.size?.[0] || widgetWidth;
             const margin = 14;
             const gap = 8;
+            const text = collapsible
+                ? `${isCollapsed(node, label) ? "▸" : "▾"} ${label}`
+                : label;
             ctx.save();
             ctx.font = "bold 10px sans-serif";
             ctx.textBaseline = "middle";
             ctx.textAlign = "center";
             const cy = y + height / 2;
             const cx = w / 2;
-            const textW = ctx.measureText(label).width;
+            const textW = ctx.measureText(text).width;
             ctx.fillStyle = "#888";
-            ctx.fillText(label, cx, cy);
+            ctx.fillText(text, cx, cy);
             ctx.strokeStyle = "#555";
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -60,6 +98,24 @@ function addSeparator(node, label, beforeWidgetName) {
             ctx.lineTo(w - margin, cy);
             ctx.stroke();
             ctx.restore();
+            this._hitY = [y, y + height];
+        },
+        mouse(event, pos, mouseNode) {
+            if (!collapsible) return false;
+            if (event.type !== "pointerdown" && event.type !== "mousedown") return false;
+            const ly = pos?.[1];
+            // Whole row is the hit target, not just the little arrow — a 20px
+            // strip with an 8px glyph in it is not a realistic click target.
+            if (ly == null || ly < this._hitY[0] || ly > this._hitY[1]) return false;
+            setCollapsed(node, label, !isCollapsed(node, label));
+            onToggle();
+            (mouseNode ?? node).setDirtyCanvas(true, true);
+            // Nodes 2.0's WidgetLegacy bridge only repaints its canvas via the
+            // widget's own triggerDraw() (set on it once mounted), not via
+            // setDirtyCanvas — without this the arrow never flips even though
+            // the state did change. Same fix as CraftKit's preset picker.
+            this.triggerDraw?.();
+            return true;
         },
         serialize: false,
     };
@@ -80,6 +136,10 @@ function addSeparator(node, label, beforeWidgetName) {
 // Nodes 2.0. Ported from ComfyUI-CraftKit's own
 // js/shared/widget_visibility.mjs (setWidgetVisible) so this pack doesn't
 // depend on CraftKit being installed.
+//
+// Note this only ever hides — it never removes the widget from node.widgets.
+// Removal would shift the indices that widget values are saved and restored
+// by (§23), so a collapsed section is still a full-length widget array.
 function setWidgetVisible(node, widget, visible) {
     if (!widget._visibilityDefaultCaptured) {
         widget._defaultComputeSize = widget.computeSize;
@@ -101,6 +161,50 @@ function setWidgetVisible(node, widget, visible) {
     node.setDirtyCanvas(true, true);
 }
 
+// setWidgetVisible alone shrinks a widget's computeSize to zero but leaves
+// node.size untouched, so a node that grew to fit (say) the custom-sound
+// fields stayed tall forever once they were hidden again. Recompute the
+// height here, but keep whatever width the user dragged the node to —
+// computeSize() returns the minimum width, which would undo a manual resize.
+function resizeToFit(node) {
+    const [w, h] = node.computeSize();
+    node.setSize([Math.max(w, node.size?.[0] ?? w), h]);
+    node.setDirtyCanvas(true, true);
+}
+
+// Repair a save/load round-trip that LiteGraph gets wrong on any node with
+// JS-added widgets. serialize() writes widgets_values indexed over the FULL
+// node.widgets array, putting a null placeholder at the index of every
+// serialize:false widget (our dividers and buttons). configure() then reads
+// that array back *sequentially*, skipping those same widgets — so every real
+// widget after the first JS-only one is restored from the wrong slot.
+// Confirmed live on a round-trip: a saved custom_sound_path landed in
+// wait_for_click, turning a boolean into a truthy string, which would block
+// the run forever on a Continue button the user never enabled.
+//
+// This is the load-time sibling of the positional-default bug in §23, and the
+// same rule applies: fix it by index, never by reordering node.widgets.
+function restoreWidgetValues(node, info) {
+    const vals = info?.widgets_values;
+    if (!Array.isArray(vals) || !node.widgets) return;
+
+    const isSerialized = (w) => !(w.serialize === false || w.options?.serialize === false);
+    const serializableIdx = node.widgets.map((w, i) => (isSerialized(w) ? i : -1)).filter((i) => i >= 0);
+    if (!serializableIdx.length) return;
+
+    // Two possible layouts. Index-aligned (what serialize() produces here) runs
+    // to the last serializable widget, with nulls filling the JS-only slots;
+    // trailing serialize:false widgets are dropped entirely. Compact is one
+    // entry per serializable widget — that's what configure() already assumed,
+    // so it got it right and there's nothing to repair.
+    const indexAlignedLength = serializableIdx[serializableIdx.length - 1] + 1;
+    if (vals.length !== indexAlignedLength || indexAlignedLength === serializableIdx.length) return;
+
+    for (const i of serializableIdx) {
+        if (vals[i] !== undefined) node.widgets[i].value = vals[i];
+    }
+}
+
 function setNodeWaiting(node, waiting) {
     if (waiting) {
         let on = true;
@@ -119,6 +223,11 @@ function setNodeWaiting(node, waiting) {
     const { continueBtn, cancelBtn } = node._smartQueueWaitWidgets ?? {};
     if (continueBtn) continueBtn.disabled = !waiting;
     if (cancelBtn) cancelBtn.disabled = !waiting;
+
+    // A node that's actively waiting has to show its Continue button even if
+    // the OPTIONS section is collapsed — otherwise the run sits blocked behind
+    // a control the user can't see.
+    node._smartQueueApplyVisibility?.();
     app.graph.setDirtyCanvas(true, false);
 }
 
@@ -147,37 +256,23 @@ app.registerExtension({
         // used to leave custom_sound_path holding a stray boolean `true`).
         // Only divider and button widgets (JS-only, not schema-backed) are
         // safe to splice in below.
-        addSeparator(node, "NOTIFICATIONS", NOTIFY_SECTION_FIRST_WIDGET);
-        addSeparator(node, "OPTIONS", WAIT_SECTION_FIRST_WIDGET);
+        const applyVisibility = () => node._smartQueueApplyVisibility?.();
+        addSeparator(node, NOTIFY_SECTION, NOTIFY_SECTION_FIRST_WIDGET, applyVisibility);
+        addSeparator(node, WAIT_SECTION, WAIT_SECTION_FIRST_WIDGET, applyVisibility);
 
-        // Only show the temp-wait tuning fields while wait_for_temp is on —
-        // they're meaningless (and the whole point of confusion) otherwise.
-        const waitForTempWidget = node.widgets.find((w) => w.name === "wait_for_temp");
+        const byName = (name) => node.widgets.find((w) => w.name === name);
+
+        const waitForTempWidget = byName("wait_for_temp");
         const tempSubWidgets = ["target_temp_c", "poll_interval_seconds", "max_wait_seconds"]
-            .map((name) => node.widgets.find((w) => w.name === name))
+            .map(byName)
             .filter(Boolean);
-        if (waitForTempWidget && tempSubWidgets.length) {
-            const updateTempVisibility = () => {
-                for (const w of tempSubWidgets) setWidgetVisible(node, w, waitForTempWidget.value);
-            };
-            const origCallback = waitForTempWidget.callback;
-            waitForTempWidget.callback = function (...args) {
-                origCallback?.call(this, ...args);
-                updateTempVisibility();
-            };
-            const origOnConfigure = node.onConfigure;
-            node.onConfigure = function (...args) {
-                origOnConfigure?.call(this, ...args);
-                updateTempVisibility();
-            };
-            updateTempVisibility();
-        }
 
-        // Only show the sound-choice fields while notify_sound is on, and
-        // only show the custom path field once "Custom..." is picked.
-        const notifySoundWidget = node.widgets.find((w) => w.name === "notify_sound");
-        const notifySoundChoiceWidget = node.widgets.find((w) => w.name === "notify_sound_choice");
-        const customSoundPathWidget = node.widgets.find((w) => w.name === "custom_sound_path");
+        const notifySoundWidget = byName("notify_sound");
+        const notifySoundChoiceWidget = byName("notify_sound_choice");
+        const customSoundPathWidget = byName("custom_sound_path");
+        const notifyToastWidget = byName("notify_toast");
+        const waitForClickWidget = byName("wait_for_click");
+
         let browseBtn = null;
         if (customSoundPathWidget && notifySoundChoiceWidget) {
             // Browse button, copied from CraftKit's Smart Batch Resize
@@ -200,31 +295,6 @@ app.registerExtension({
             const pathIdx = node.widgets.indexOf(customSoundPathWidget);
             node.widgets.splice(node.widgets.indexOf(browseBtn), 1);
             node.widgets.splice(pathIdx + 1, 0, browseBtn);
-        }
-        if (notifySoundWidget && notifySoundChoiceWidget && customSoundPathWidget) {
-            const updateSoundVisibility = () => {
-                const soundOn = notifySoundWidget.value;
-                const showCustomPath = soundOn && notifySoundChoiceWidget.value === "Custom...";
-                setWidgetVisible(node, notifySoundChoiceWidget, soundOn);
-                setWidgetVisible(node, customSoundPathWidget, showCustomPath);
-                if (browseBtn) setWidgetVisible(node, browseBtn, showCustomPath);
-            };
-            const origSoundCallback = notifySoundWidget.callback;
-            notifySoundWidget.callback = function (...args) {
-                origSoundCallback?.call(this, ...args);
-                updateSoundVisibility();
-            };
-            const origChoiceCallback = notifySoundChoiceWidget.callback;
-            notifySoundChoiceWidget.callback = function (...args) {
-                origChoiceCallback?.call(this, ...args);
-                updateSoundVisibility();
-            };
-            const origOnConfigureSound = node.onConfigure;
-            node.onConfigure = function (...args) {
-                origOnConfigureSound?.call(this, ...args);
-                updateSoundVisibility();
-            };
-            updateSoundVisibility();
         }
 
         // Plain default litegraph button — no custom draw/computeSize, copied
@@ -258,10 +328,78 @@ app.registerExtension({
 
         node._smartQueueWaitWidgets = { continueBtn, cancelBtn };
 
-        // Force a full size/layout recompute now that some widgets may have
-        // started out hidden (wait_for_temp/notify_sound default to off).
-        node.setSize(node.computeSize());
-        node.setDirtyCanvas(true, true);
+        // Section membership, resolved once here because the JS-only buttons
+        // only exist by reference — they have no stable schema name to look up.
+        const notifyMembers = [
+            notifyToastWidget,
+            notifySoundWidget,
+            notifySoundChoiceWidget,
+            customSoundPathWidget,
+            browseBtn,
+        ].filter(Boolean);
+        const waitMembers = [
+            byName("unload_models_before_wait"),
+            byName("clear_cache_before_wait"),
+            waitForClickWidget,
+            continueBtn,
+            cancelBtn,
+        ].filter(Boolean);
+
+        // ONE visibility pass for the whole node. Section collapse state and
+        // the per-toggle conditions (temp fields only while wait_for_temp is
+        // on, sound fields only while notify_sound is on, Continue/Cancel only
+        // while wait_for_click is on) both feed the same decision — running
+        // them as two independent updaters would let them fight, with
+        // whichever ran last winning.
+        const updateVisibility = () => {
+            const notifyOpen = !isCollapsed(node, NOTIFY_SECTION);
+            const waitOpen = !isCollapsed(node, WAIT_SECTION);
+            const soundOn = !!notifySoundWidget?.value;
+            const customSound = soundOn && notifySoundChoiceWidget?.value === "Custom...";
+            const clickOn = !!waitForClickWidget?.value;
+            const isWaiting = pending.has(String(node.id));
+
+            for (const w of tempSubWidgets) setWidgetVisible(node, w, !!waitForTempWidget?.value);
+
+            for (const w of notifyMembers) {
+                let visible = notifyOpen;
+                if (w === notifySoundChoiceWidget) visible = notifyOpen && soundOn;
+                if (w === customSoundPathWidget || w === browseBtn) visible = notifyOpen && customSound;
+                setWidgetVisible(node, w, visible);
+            }
+
+            for (const w of waitMembers) {
+                // Continue/Cancel are meaningless unless wait_for_click is on,
+                // and while the node is actually waiting they have to stay
+                // reachable even with the section collapsed. The section's
+                // schema widgets just follow the collapse state.
+                const isButton = w === continueBtn || w === cancelBtn;
+                const visible = isButton ? clickOn && (waitOpen || isWaiting) : waitOpen;
+                setWidgetVisible(node, w, visible);
+            }
+
+            resizeToFit(node);
+        };
+        node._smartQueueApplyVisibility = updateVisibility;
+
+        // Re-run the pass after any toggle that feeds into it, and after
+        // configure() restores saved values + collapse state on workflow load.
+        for (const w of [waitForTempWidget, notifySoundWidget, notifySoundChoiceWidget, waitForClickWidget]) {
+            if (!w) continue;
+            const orig = w.callback;
+            w.callback = function (...args) {
+                orig?.call(this, ...args);
+                updateVisibility();
+            };
+        }
+        const origOnConfigure = node.onConfigure;
+        node.onConfigure = function (info, ...rest) {
+            origOnConfigure?.call(this, info, ...rest);
+            restoreWidgetValues(this, info);
+            updateVisibility();
+        };
+
+        updateVisibility();
     },
     async setup() {
         api.addEventListener("smart_queue.cooldown_notify", (event) => {

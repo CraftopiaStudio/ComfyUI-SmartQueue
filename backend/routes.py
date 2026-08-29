@@ -10,6 +10,7 @@ from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
 from .continue_registry import signal_cancel, signal_continue
 from .native_dialog import browse_path
+from .sound_library import import_sound
 from .persistence import (
     add_queue_item,
     list_history,
@@ -187,7 +188,15 @@ def register_routes(
         return web.json_response({"ok": True})
 
     async def post_browse_sound_file(request: web.Request) -> web.Response:
-        return await browse_path(request, pick_folder=False, title="Select notification sound")
+        # import_sound copies the pick into web/sounds/custom and returns a
+        # path relative to web/ — the browser cannot load a raw filesystem
+        # path, so handing back the picked path directly never worked.
+        return await browse_path(
+            request,
+            pick_folder=False,
+            title="Select notification sound",
+            transform=import_sound,
+        )
 
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)

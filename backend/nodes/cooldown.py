@@ -104,18 +104,6 @@ class SmartCooldownNode(_NodeBase):
                 io.Float.Input("poll_interval_seconds", default=5.0, min=1.0, max=60.0, step=1.0),
                 io.Float.Input("max_wait_seconds", default=300.0, min=0.0, max=3600.0, step=10.0),
                 io.Boolean.Input(
-                    "unload_models_before_wait",
-                    default=False,
-                    display_name="unload_models",
-                    tooltip="Unload all models from VRAM before waiting. Doesn't free the memory by itself — pair with clear_cache for that.",
-                ),
-                io.Boolean.Input(
-                    "clear_cache_before_wait",
-                    default=False,
-                    display_name="clear_cache",
-                    tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
-                ),
-                io.Boolean.Input(
                     "notify_toast",
                     default=False,
                     display_name="notify_popup",
@@ -128,6 +116,25 @@ class SmartCooldownNode(_NodeBase):
                 # every required one, which would silently kick this to the end
                 # of the widget list regardless of declaration order.
                 io.String.Input("custom_sound_path", default=""),
+                # --- OPTIONS group: the occasional toggles, collapsed by
+                # default in the JS. unload_models/clear_cache act *before* the
+                # wait and wait_for_click *after* it, so this is a grab bag
+                # chronologically — but they share the property that matters
+                # for layout: all three are off by default and rarely touched,
+                # unlike fixed_delay_seconds/wait_for_temp above, which are
+                # what the node exists for and stay permanently visible.
+                io.Boolean.Input(
+                    "unload_models_before_wait",
+                    default=False,
+                    display_name="unload_models",
+                    tooltip="Unload all models from VRAM before waiting. Doesn't free the memory by itself — pair with clear_cache for that.",
+                ),
+                io.Boolean.Input(
+                    "clear_cache_before_wait",
+                    default=False,
+                    display_name="clear_cache",
+                    tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
+                ),
                 io.Boolean.Input("wait_for_click", default=False),
                 io.AnyType.Input("passthrough", optional=True),
             ],
@@ -166,11 +173,28 @@ class SmartCooldownNode(_NodeBase):
 
         notify_sound = kwargs["notify_sound"]
         notify_toast = kwargs["notify_toast"]
+        sound_choice = kwargs["notify_sound_choice"]
+        custom_sound_path = kwargs.get("custom_sound_path", "")
+
+        # Resolve the custom sound here rather than letting the browser discover
+        # it's unplayable: a failed <audio> load falls back to the default tone
+        # silently, which is indistinguishable from the custom sound working.
+        # Downgrading to "Default" up front makes the fallback deliberate and
+        # lets the node say why in its status output (§8 promised this warning).
+        if notify_sound and sound_choice == "Custom...":
+            from ..sound_library import resolve as resolve_custom_sound
+
+            if resolve_custom_sound(custom_sound_path) is None:
+                detail = custom_sound_path or "no file picked"
+                status += f" | Custom sound unavailable ({detail}) — played the default tone instead."
+                sound_choice = "Default"
+                custom_sound_path = ""
+
         if notify_sound or notify_toast:
             PromptServer.instance.send_sync("smart_queue.cooldown_notify", {
                 "notify_sound": notify_sound,
-                "notify_sound_choice": kwargs["notify_sound_choice"],
-                "custom_sound_path": kwargs.get("custom_sound_path", ""),
+                "notify_sound_choice": sound_choice,
+                "custom_sound_path": custom_sound_path,
                 "notify_toast": notify_toast,
                 "status": status,
             })
