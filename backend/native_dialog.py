@@ -1,8 +1,7 @@
-"""Windows native file/folder picker, invoked from a browser-facing endpoint.
+"""Windows native file picker, invoked from a browser-facing endpoint.
 
 Ported from ComfyUI-CraftKit's own browse_folder endpoint (__init__.py) —
-same IFileDialog COM interop via a hidden PowerShell/WinForms host, just
-parameterized so the same dialog can pick either a folder or a single file.
+same IFileDialog COM interop via a hidden PowerShell/WinForms host.
 """
 
 import asyncio
@@ -21,14 +20,14 @@ _dialog_lock = threading.Lock()
 _DIALOG_ERROR_PREFIX = "SMARTQUEUE_DIALOG_ERROR:"
 
 
-def _run_dialog(title: str, pick_folder: bool) -> str:
+def _run_dialog(title: str) -> str:
     if sys.platform != "win32":
         return ""
-    # FOS_FORCEFILESYSTEM [| FOS_PICKFOLDERS] — plain PowerShell hex/bitwise
-    # syntax, not C#'s "0x40u" literal suffix (that parses fine inside the
-    # Add-Type C# block above, but this flags value is substituted into the
-    # PowerShell call site further down, where "u" is a syntax error).
-    options_flags = "0x40" if not pick_folder else "(0x20 -bor 0x40)"
+    # FOS_FORCEFILESYSTEM — plain PowerShell hex syntax, not C#'s "0x40u"
+    # literal suffix (that parses fine inside the Add-Type C# block above,
+    # but this flags value is substituted into the PowerShell call site
+    # further down, where "u" is a syntax error).
+    options_flags = "0x40"
     ps = r"""
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
@@ -142,7 +141,6 @@ $r
 async def browse_path(
     request: web.Request,
     *,
-    pick_folder: bool,
     title: str,
     transform: Callable[[str], str] | None = None,
 ) -> web.Response:
@@ -168,7 +166,7 @@ async def browse_path(
     try:
         loop = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            path = await loop.run_in_executor(pool, _run_dialog, title, pick_folder)
+            path = await loop.run_in_executor(pool, _run_dialog, title)
     finally:
         _dialog_lock.release()
 
@@ -176,8 +174,7 @@ async def browse_path(
         return web.json_response({"ok": False, "error": path.removeprefix(_DIALOG_ERROR_PREFIX)}, status=500)
 
     import os
-    is_valid = os.path.isdir(path) if pick_folder else os.path.isfile(path)
-    if path and is_valid:
+    if path and os.path.isfile(path):
         if transform is not None:
             try:
                 path = transform(path)

@@ -76,7 +76,6 @@ def register_routes(
     async def get_queue(request: web.Request) -> web.Response:
         items = list_queue_items(
             conn,
-            status=request.query.get("status"),
             name_contains=request.query.get("name"),
         )
         # queue_tracker never persists a "running" status onto a row (only
@@ -167,8 +166,6 @@ def register_routes(
         items = list_history(
             conn,
             name_contains=request.query.get("name"),
-            date_from=request.query.get("date_from"),
-            date_to=request.query.get("date_to"),
         )
         return web.json_response({"items": items})
 
@@ -199,7 +196,6 @@ def register_routes(
         # path, so handing back the picked path directly never worked.
         return await browse_path(
             request,
-            pick_folder=False,
             title="Select notification sound",
             transform=import_sound,
         )

@@ -148,15 +148,6 @@ def test_rename_queue_item_nonexistent_prompt_id_is_a_noop(tmp_path):
     assert list_queue_items(conn) == []
 
 
-def test_list_queue_items_filters_by_status(tmp_path):
-    conn = init_db(str(tmp_path / "test.sqlite3"))
-    add_queue_item(conn, prompt_id="a", name="First")
-    add_queue_item(conn, prompt_id="b", name="Second")
-    set_queue_item_status(conn, prompt_id="b", status="held")
-    held_only = list_queue_items(conn, status="held")
-    assert [item["prompt_id"] for item in held_only] == ["b"]
-
-
 def test_list_queue_items_filters_by_name_case_insensitive(tmp_path):
     conn = init_db(str(tmp_path / "test.sqlite3"))
     add_queue_item(conn, prompt_id="a", name="Cyberpunk Cat")
@@ -165,17 +156,13 @@ def test_list_queue_items_filters_by_name_case_insensitive(tmp_path):
     assert [item["prompt_id"] for item in matches] == ["a"]
 
 
-def test_list_history_filters_by_name_and_date_range(tmp_path):
+def test_list_history_filters_by_name(tmp_path):
     conn = init_db(str(tmp_path / "test.sqlite3"))
     add_queue_item(conn, prompt_id="a", name="Cyberpunk Cat")
     mark_completed(conn, prompt_id="a")
-    conn.execute("UPDATE history SET completed_at = '2026-01-15T10:00:00+00:00' WHERE prompt_id = 'a'")
-    conn.commit()
 
     assert len(list_history(conn, name_contains="cyber")) == 1
     assert len(list_history(conn, name_contains="beach")) == 0
-    assert len(list_history(conn, date_from="2026-01-01", date_to="2026-01-31")) == 1
-    assert len(list_history(conn, date_from="2026-02-01")) == 0
 
 
 def test_delete_history_older_than_removes_only_old_rows(tmp_path):

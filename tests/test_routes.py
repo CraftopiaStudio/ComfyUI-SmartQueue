@@ -1,7 +1,7 @@
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
-from backend.persistence import init_db, add_queue_item, set_queue_item_status
+from backend.persistence import init_db, add_queue_item
 from backend.autopilot_state import AutopilotState
 from backend.autopilot import AutopilotSettings, Decision
 from backend.continue_registry import InterruptProcessingException, signal_continue, wait_for_continue
@@ -291,15 +291,6 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         add_queue_item(self.conn, prompt_id="a", name="Old Name")
         resp = await self.client.post("/smart_queue/rename", json={"prompt_id": "a", "name": "   "})
         assert resp.status == 400
-
-    @unittest_run_loop
-    async def test_get_queue_filters_by_status_query_param(self):
-        add_queue_item(self.conn, prompt_id="a", name="First")
-        add_queue_item(self.conn, prompt_id="b", name="Second")
-        set_queue_item_status(self.conn, prompt_id="b", status="held")
-        resp = await self.client.get("/smart_queue/queue?status=held")
-        body = await resp.json()
-        assert [item["prompt_id"] for item in body["items"]] == ["b"]
 
     @unittest_run_loop
     async def test_get_history_filters_by_name_query_param(self):

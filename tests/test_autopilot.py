@@ -2,8 +2,8 @@ from backend.gpu_monitor import GpuMetrics
 from backend.autopilot import AutopilotSettings, evaluate
 
 
-def make_metrics(temp_c=50.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=5.0):
-    return GpuMetrics(temp_c=temp_c, vram_used_mb=vram_used_mb, vram_total_mb=vram_total_mb, util_pct=util_pct)
+def make_metrics(temp_c=50.0, vram_used_mb=1000.0, vram_total_mb=8000.0):
+    return GpuMetrics(temp_c=temp_c, vram_used_mb=vram_used_mb, vram_total_mb=vram_total_mb)
 
 
 def test_default_history_retention_is_30_days():
@@ -97,7 +97,7 @@ def test_job_count_rule_disabled_never_pauses_on_count():
 
 def test_missing_gpu_data_does_not_trigger_temp_or_vram_rules():
     settings = AutopilotSettings()
-    metrics = GpuMetrics(temp_c=None, vram_used_mb=None, vram_total_mb=None, util_pct=None)
+    metrics = GpuMetrics(temp_c=None, vram_used_mb=None, vram_total_mb=None)
     decision = evaluate(metrics, jobs_since_resume=0, currently_paused=False, settings=settings)
     assert decision.should_pause is False
 

@@ -9,7 +9,6 @@ class GpuMetrics:
     temp_c: float | None
     vram_used_mb: float | None
     vram_total_mb: float | None
-    util_pct: float | None
 
     @property
     def vram_free_mb(self) -> float | None:
@@ -18,7 +17,7 @@ class GpuMetrics:
         return self.vram_total_mb - self.vram_used_mb
 
 
-_EMPTY = GpuMetrics(temp_c=None, vram_used_mb=None, vram_total_mb=None, util_pct=None)
+_EMPTY = GpuMetrics(temp_c=None, vram_used_mb=None, vram_total_mb=None)
 
 
 def poll_gpu_metrics(timeout: float = 5.0) -> GpuMetrics:
@@ -26,7 +25,7 @@ def poll_gpu_metrics(timeout: float = 5.0) -> GpuMetrics:
         result = subprocess.run(
             [
                 "nvidia-smi",
-                "--query-gpu=temperature.gpu,memory.used,memory.total,utilization.gpu",
+                "--query-gpu=temperature.gpu,memory.used,memory.total",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
@@ -37,12 +36,11 @@ def poll_gpu_metrics(timeout: float = 5.0) -> GpuMetrics:
             return _EMPTY
 
         first_line = result.stdout.strip().splitlines()[0]
-        temp_s, used_s, total_s, util_s = (p.strip() for p in first_line.split(","))
+        temp_s, used_s, total_s = (p.strip() for p in first_line.split(","))
         return GpuMetrics(
             temp_c=float(temp_s),
             vram_used_mb=float(used_s),
             vram_total_mb=float(total_s),
-            util_pct=float(util_s),
         )
     except Exception:
         return _EMPTY

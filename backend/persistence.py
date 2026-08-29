@@ -59,15 +59,11 @@ def rename_queue_item(conn: sqlite3.Connection, prompt_id: str, name: str) -> No
 
 def list_queue_items(
     conn: sqlite3.Connection,
-    status: str | None = None,
     name_contains: str | None = None,
 ) -> list[dict]:
     query = "SELECT * FROM queue_items"
     clauses: list[str] = []
     params: list = []
-    if status is not None:
-        clauses.append("status = ?")
-        params.append(status)
     if name_contains:
         clauses.append("LOWER(name) LIKE ?")
         params.append(f"%{name_contains.lower()}%")
@@ -104,8 +100,6 @@ def list_history(
     conn: sqlite3.Connection,
     limit: int = 50,
     name_contains: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
 ) -> list[dict]:
     query = "SELECT * FROM history"
     clauses: list[str] = []
@@ -113,14 +107,6 @@ def list_history(
     if name_contains:
         clauses.append("LOWER(name) LIKE ?")
         params.append(f"%{name_contains.lower()}%")
-    if date_from:
-        clauses.append("completed_at >= ?")
-        params.append(date_from)
-    if date_to:
-        # completed_at is a full ISO timestamp; "< next day" makes date_to
-        # inclusive of the whole given day without reformatting it first.
-        clauses.append("completed_at < date(?, '+1 day')")
-        params.append(date_to)
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY completed_at DESC LIMIT ?"
