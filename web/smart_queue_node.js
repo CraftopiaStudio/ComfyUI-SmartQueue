@@ -399,6 +399,16 @@ app.registerExtension({
             updateVisibility();
         };
 
+        // Deleting a waiting node (or loading another workflow) used to leave
+        // its blink setInterval running forever, mutating bgcolor on a
+        // detached node and forcing a canvas repaint twice a second for the
+        // rest of the page session (spec §26.2).
+        const origOnRemoved = node.onRemoved;
+        node.onRemoved = function (...args) {
+            if (node._smartQueueBlinkId) clearInterval(node._smartQueueBlinkId);
+            origOnRemoved?.call(this, ...args);
+        };
+
         updateVisibility();
     },
     async setup() {
