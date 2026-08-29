@@ -1,6 +1,7 @@
 """In-memory autopilot state, mutated by the polling loop and read by the middleware."""
 
 from .autopilot import Decision
+from .gpu_monitor import GpuMetrics
 
 
 class AutopilotState:
@@ -9,6 +10,7 @@ class AutopilotState:
         self.jobs_since_resume: int = 0
         self.last_reasons: tuple[str, ...] = ()
         self.manual_paused: bool = False
+        self.last_metrics: GpuMetrics | None = None
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused
@@ -16,6 +18,9 @@ class AutopilotState:
         self.last_reasons = decision.reasons
         if was_paused and not self.is_paused:
             self.jobs_since_resume = 0
+
+    def record_metrics(self, metrics: GpuMetrics) -> None:
+        self.last_metrics = metrics
 
     def record_job_started(self) -> None:
         self.jobs_since_resume += 1

@@ -14,14 +14,14 @@ from .gpu_monitor import GpuMetrics
 class AutopilotSettings:
     master_enabled: bool = True
 
-    temp_rule_enabled: bool = True
+    temp_rule_enabled: bool = False
     pause_temp_c: float = 80.0
     resume_temp_c: float = 72.0
 
-    vram_rule_enabled: bool = True
+    vram_rule_enabled: bool = False
     min_free_vram_mb: float = 1024.0
 
-    job_count_rule_enabled: bool = True
+    job_count_rule_enabled: bool = False
     max_jobs_before_pause: int = 20
 
     def update_from_dict(self, values: dict) -> None:

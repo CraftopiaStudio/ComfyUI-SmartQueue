@@ -27,6 +27,8 @@ async def run_autopilot_tick(
         logger.warning("Smart Queue: GPU metrics poll failed, skipping this tick", exc_info=True)
         return
 
+    state.record_metrics(metrics)
+
     decision = evaluate(
         metrics,
         jobs_since_resume=state.jobs_since_resume,

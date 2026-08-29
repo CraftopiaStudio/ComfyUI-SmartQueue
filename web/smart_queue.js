@@ -5,51 +5,64 @@ app.registerExtension({
     settings: [
         {
             id: "SmartQueue.EnableAutopilot",
-            name: "Enable Autopilot Queue Panel",
+            name: "Turn on autopilot (GPU monitoring and pause rules)",
             type: "boolean",
             defaultValue: true,
+            category: ["SmartQueue", "1. Autopilot", "Turn on autopilot (GPU monitoring and pause rules)"],
         },
+        // Settings render in reverse of this array's order within a category
+        // section, so each group below is listed bottom-to-top of how it
+        // should appear on screen. The 3rd category element must be unique
+        // per setting (it's used as the item's dedup key) — reusing `name`
+        // for it happens to also be a legible key.
         {
-            id: "SmartQueue.TempRuleEnabled",
-            name: "Autopilot: pause on high temperature",
-            type: "boolean",
-            defaultValue: true,
-        },
-        {
-            id: "SmartQueue.VramRuleEnabled",
-            name: "Autopilot: pause on low free VRAM",
-            type: "boolean",
-            defaultValue: true,
+            id: "SmartQueue.ResumeTempC",
+            name: "Resume once it's cooled back down to this temperature (°C)",
+            type: "number",
+            defaultValue: 72.0,
+            category: ["SmartQueue", "2. Temperature", "Resume once it's cooled back down to this temperature (°C)"],
         },
         {
             id: "SmartQueue.PauseTempC",
-            name: "Autopilot: pause temperature (C)",
+            name: "Pause once the GPU hits this temperature (°C)",
             type: "number",
             defaultValue: 80.0,
+            category: ["SmartQueue", "2. Temperature", "Pause once the GPU hits this temperature (°C)"],
         },
         {
-            id: "SmartQueue.ResumeTempC",
-            name: "Autopilot: resume temperature (C)",
-            type: "number",
-            defaultValue: 72.0,
-        },
-        {
-            id: "SmartQueue.JobCountRuleEnabled",
-            name: "Autopilot: pause after N jobs",
+            id: "SmartQueue.TempRuleEnabled",
+            name: "Pause the queue automatically if your GPU gets too hot",
             type: "boolean",
-            defaultValue: true,
+            defaultValue: false,
+            category: ["SmartQueue", "2. Temperature", "Pause the queue automatically if your GPU gets too hot"],
         },
         {
             id: "SmartQueue.MinFreeVramMb",
-            name: "Autopilot: minimum free VRAM (MB)",
+            name: "Pause when free VRAM drops below this (MB)",
             type: "number",
             defaultValue: 1024,
+            category: ["SmartQueue", "3. VRAM", "Pause when free VRAM drops below this (MB)"],
+        },
+        {
+            id: "SmartQueue.VramRuleEnabled",
+            name: "Pause the queue automatically when VRAM is running low",
+            type: "boolean",
+            defaultValue: false,
+            category: ["SmartQueue", "3. VRAM", "Pause the queue automatically when VRAM is running low"],
         },
         {
             id: "SmartQueue.MaxJobsBeforePause",
-            name: "Autopilot: jobs before forced cooldown",
+            name: "How many jobs before taking that break",
             type: "number",
             defaultValue: 20,
+            category: ["SmartQueue", "4. Job count", "How many jobs before taking that break"],
+        },
+        {
+            id: "SmartQueue.JobCountRuleEnabled",
+            name: "Give the GPU a break after a batch of jobs",
+            type: "boolean",
+            defaultValue: false,
+            category: ["SmartQueue", "4. Job count", "Give the GPU a break after a batch of jobs"],
         },
     ],
     async setup() {
@@ -185,6 +198,7 @@ app.registerExtension({
                     <div id="smart-queue-panel">
                         <div class="smart-queue-status-row">
                             <div class="smart-queue-status">Smart Queue: idle</div>
+                            <button type="button" class="smart-queue-settings-btn" title="Smart Queue settings" aria-label="Smart Queue settings">⚙</button>
                         </div>
                         ${hasCrystools ? "" : '<div class="smart-queue-gpu-readout"></div>'}
                         <div class="smart-queue-section-title">Pending / running</div>
@@ -196,6 +210,10 @@ app.registerExtension({
 
                 const panel = el.querySelector("#smart-queue-panel");
 
+                panel.querySelector(".smart-queue-settings-btn").addEventListener("click", () => {
+                    app.extensionManager.command.execute("Comfy.ShowSettingsDialog");
+                });
+
                 async function refreshStatus() {
                     try {
                         const res = await fetch("/smart_queue/status");
@@ -205,6 +223,18 @@ app.registerExtension({
                             ? `Paused — ${data.reasons.join("; ")}`
                             : "Running";
                         statusEl.classList.toggle("smart-queue-paused", data.is_paused);
+
+                        if (!hasCrystools) {
+                            const gpuEl = panel.querySelector(".smart-queue-gpu-readout");
+                            if (gpuEl) {
+                                const parts = [];
+                                if (data.temp_c != null) parts.push(`${data.temp_c.toFixed(0)}°C`);
+                                if (data.vram_used_mb != null && data.vram_total_mb != null) {
+                                    parts.push(`${(data.vram_used_mb / 1024).toFixed(1)} / ${(data.vram_total_mb / 1024).toFixed(1)} GB VRAM`);
+                                }
+                                gpuEl.textContent = parts.join("  ·  ");
+                            }
+                        }
                     } catch (err) {
                         console.error("[Smart Queue] status fetch failed:", err);
                     }

@@ -30,11 +30,15 @@ def register_routes(
     prompt_queue=None,
 ) -> None:
     async def get_status(request: web.Request) -> web.Response:
+        metrics = state.last_metrics
         return web.json_response({
             "is_paused": state.effective_paused,
             "reasons": list(state.effective_reasons),
             "manual_paused": state.manual_paused,
             "autopilot_paused": state.is_paused,
+            "temp_c": metrics.temp_c if metrics else None,
+            "vram_used_mb": metrics.vram_used_mb if metrics else None,
+            "vram_total_mb": metrics.vram_total_mb if metrics else None,
         })
 
     async def post_manual_pause(request: web.Request) -> web.Response:

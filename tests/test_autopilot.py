@@ -14,21 +14,21 @@ def test_no_rules_triggered_returns_no_pause():
 
 
 def test_temp_above_pause_threshold_triggers_pause():
-    settings = AutopilotSettings(pause_temp_c=80.0, resume_temp_c=72.0)
+    settings = AutopilotSettings(temp_rule_enabled=True, pause_temp_c=80.0, resume_temp_c=72.0)
     decision = evaluate(make_metrics(temp_c=85.0), jobs_since_resume=0, currently_paused=False, settings=settings)
     assert decision.should_pause is True
     assert "85" in decision.reasons[0]
 
 
 def test_temp_hysteresis_keeps_paused_until_resume_threshold():
-    settings = AutopilotSettings(pause_temp_c=80.0, resume_temp_c=72.0)
+    settings = AutopilotSettings(temp_rule_enabled=True, pause_temp_c=80.0, resume_temp_c=72.0)
     # already paused, temp dropped below pause_temp_c but not yet below resume_temp_c
     decision = evaluate(make_metrics(temp_c=75.0), jobs_since_resume=0, currently_paused=True, settings=settings)
     assert decision.should_pause is True
 
 
 def test_temp_hysteresis_resumes_once_below_resume_threshold():
-    settings = AutopilotSettings(pause_temp_c=80.0, resume_temp_c=72.0)
+    settings = AutopilotSettings(temp_rule_enabled=True, pause_temp_c=80.0, resume_temp_c=72.0)
     decision = evaluate(make_metrics(temp_c=70.0), jobs_since_resume=0, currently_paused=True, settings=settings)
     assert decision.should_pause is False
 
@@ -40,7 +40,7 @@ def test_temp_rule_disabled_never_pauses_on_temp():
 
 
 def test_low_free_vram_triggers_pause():
-    settings = AutopilotSettings(min_free_vram_mb=1024.0)
+    settings = AutopilotSettings(vram_rule_enabled=True, min_free_vram_mb=1024.0)
     decision = evaluate(
         make_metrics(vram_used_mb=7800.0, vram_total_mb=8000.0),
         jobs_since_resume=0, currently_paused=False, settings=settings,
@@ -59,7 +59,7 @@ def test_vram_rule_disabled_never_pauses_on_vram():
 
 
 def test_job_count_at_or_above_max_triggers_pause():
-    settings = AutopilotSettings(max_jobs_before_pause=20)
+    settings = AutopilotSettings(job_count_rule_enabled=True, max_jobs_before_pause=20)
     decision = evaluate(make_metrics(), jobs_since_resume=20, currently_paused=False, settings=settings)
     assert decision.should_pause is True
     assert "20" in decision.reasons[0]
@@ -86,7 +86,9 @@ def test_update_from_dict_mutates_matching_fields_only():
 
 
 def test_multiple_reasons_all_reported():
-    settings = AutopilotSettings(pause_temp_c=80.0, min_free_vram_mb=1024.0)
+    settings = AutopilotSettings(
+        temp_rule_enabled=True, pause_temp_c=80.0, vram_rule_enabled=True, min_free_vram_mb=1024.0
+    )
     decision = evaluate(
         make_metrics(temp_c=90.0, vram_used_mb=7800.0, vram_total_mb=8000.0),
         jobs_since_resume=0, currently_paused=False, settings=settings,

@@ -9,7 +9,7 @@ from backend.autopilot_loop import run_autopilot_tick
 @pytest.mark.asyncio
 async def test_tick_pauses_state_when_metrics_exceed_threshold():
     state = AutopilotState()
-    settings = AutopilotSettings(pause_temp_c=80.0)
+    settings = AutopilotSettings(temp_rule_enabled=True, pause_temp_c=80.0)
 
     async def fake_metrics():
         return GpuMetrics(temp_c=90.0, vram_used_mb=1000.0, vram_total_mb=8000.0, util_pct=10.0)

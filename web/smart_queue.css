@@ -26,7 +26,29 @@
 }
 
 #smart-queue-panel .smart-queue-status.smart-queue-paused {
-    color: var(--error-text, #e06c75);
+    color: #0b8ce9;
+}
+
+#smart-queue-panel .smart-queue-settings-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-color, var(--p-text-color, #ddd));
+    opacity: 0.6;
+    cursor: pointer;
+    font-size: 19.5px;
+    line-height: 1;
+}
+
+#smart-queue-panel .smart-queue-settings-btn:hover {
+    opacity: 1;
+    background: var(--comfy-input-bg, #333);
 }
 
 #smart-queue-panel .smart-queue-pause-btn {
@@ -73,7 +95,7 @@
 
 #smart-queue-panel .smart-queue-list li.smart-queue-item-held {
     opacity: 0.75;
-    border-left: 2px solid var(--error-text, #e06c75);
+    border-left: 2px solid #0b8ce9;
 }
 
 #smart-queue-panel .smart-queue-held-badge {
@@ -121,9 +143,8 @@
 }
 
 .smart-queue-toolbar-btn-paused {
-    background: var(--error-text, #e06c75);
+    background: #0b8ce9;
     color: #fff;
-    box-shadow: 0 0 0 2px var(--error-text, #e06c75), 0 0 6px 1px var(--error-text, #e06c75);
 }
 
 .smart-queue-continue-overlay {
