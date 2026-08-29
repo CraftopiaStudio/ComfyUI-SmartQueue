@@ -215,8 +215,9 @@
     padding: 1px 4px;
 }
 
-#smart-queue-panel .smart-queue-item-checkbox {
-    margin-right: 6px;
+#smart-queue-panel .smart-queue-list li.smart-queue-item-selected {
+    background: color-mix(in srgb, var(--p-primary-color, #4a9eff) 22%, transparent);
+    box-shadow: inset 2px 0 0 var(--p-primary-color, #4a9eff);
 }
 
 #smart-queue-panel .smart-queue-list li.smart-queue-dragging {
@@ -255,4 +256,32 @@
 
 .smart-queue-sel-btn:hover {
     filter: brightness(1.15);
+}
+
+.smart-queue-context-menu {
+    position: fixed;
+    z-index: 10002;
+    background: var(--comfy-menu-bg, var(--p-content-background, #171718));
+    border: 1px solid var(--border-color, var(--p-content-border-color, #4e4e4e));
+    border-radius: 4px;
+    min-width: 160px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    font: inherit;
+}
+
+.smart-queue-context-item {
+    padding: 6px 14px;
+    font-size: 13px;
+    color: var(--input-text, var(--p-text-color, #fff));
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.smart-queue-context-item:hover {
+    background: var(--content-hover-bg, #2a2a2a);
+}
+
+.smart-queue-context-item.smart-queue-context-danger:hover {
+    color: #ff6b6b;
 }

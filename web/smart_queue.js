@@ -371,11 +371,109 @@ app.registerExtension({
                     requestAnimationFrame(() => { input.focus(); input.select(); });
                 }
 
-                // ── Multi-select + bulk cancel/requeue (adapted from
-                // comfyui-workfloworganizer's selectedPaths/selection-bar
-                // pattern, scoped to prompt_ids instead of file paths) ────
+                // ── Multi-select (ctrl/shift-click) + right-click context menu
+                // + bulk cancel/requeue (adapted from comfyui-workfloworganizer's
+                // selectedPaths/selection-bar/context-menu pattern, scoped to
+                // prompt_ids instead of file paths) ─────────────────────────
                 const selectedPromptIds = new Set();
+                let selectionAnchorId = null;
+                let orderedIds = [];
                 let selectionBarEl = null;
+                let contextMenuEl = null;
+
+                function clearSelection() {
+                    if (!selectedPromptIds.size) return;
+                    selectedPromptIds.clear();
+                    selectionAnchorId = null;
+                    applySelectionStyles();
+                    updateSelectionBar();
+                }
+
+                function applySelectionStyles() {
+                    panel.querySelectorAll("#smart-queue-list > li[data-prompt-id]").forEach((li) => {
+                        li.classList.toggle("smart-queue-item-selected", selectedPromptIds.has(li.dataset.promptId));
+                    });
+                }
+
+                function selectRange(fromId, toId) {
+                    const i = orderedIds.indexOf(fromId);
+                    const j = orderedIds.indexOf(toId);
+                    if (i === -1 || j === -1) { selectedPromptIds.add(toId); return; }
+                    const [lo, hi] = i <= j ? [i, j] : [j, i];
+                    for (let k = lo; k <= hi; k++) selectedPromptIds.add(orderedIds[k]);
+                }
+
+                function removeContextMenu() {
+                    if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; }
+                }
+
+                function makeContextItem(label, onPick, danger = false) {
+                    const el = document.createElement("div");
+                    el.className = "smart-queue-context-item" + (danger ? " smart-queue-context-danger" : "");
+                    el.textContent = label;
+                    el.addEventListener("mousedown", (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        onPick();
+                    });
+                    return el;
+                }
+
+                function showQueueContextMenu(e, promptId, name, nameSpan) {
+                    removeContextMenu();
+                    e.preventDefault();
+
+                    // Right-clicking outside the current selection selects just
+                    // this item; right-clicking inside it keeps the selection.
+                    if (!selectedPromptIds.has(promptId)) {
+                        selectedPromptIds.clear();
+                        selectedPromptIds.add(promptId);
+                        selectionAnchorId = promptId;
+                        applySelectionStyles();
+                        updateSelectionBar();
+                    }
+                    const multi = selectedPromptIds.size > 1;
+
+                    const menu = document.createElement("div");
+                    menu.className = "smart-queue-context-menu";
+
+                    if (!multi) {
+                        menu.appendChild(makeContextItem("Rename", () => {
+                            removeContextMenu();
+                            startInlineRename(nameSpan, promptId, name);
+                        }));
+                    }
+                    menu.appendChild(makeContextItem(multi ? `Cancel ${selectedPromptIds.size}` : "Cancel", () => {
+                        removeContextMenu();
+                        runBulkCancel(false);
+                    }, true));
+                    menu.appendChild(makeContextItem(multi ? `Cancel & Requeue ${selectedPromptIds.size}` : "Cancel & Requeue", () => {
+                        removeContextMenu();
+                        runBulkCancel(true);
+                    }));
+
+                    document.body.appendChild(menu);
+                    menu.style.left = e.clientX + "px";
+                    menu.style.top = e.clientY + "px";
+                    contextMenuEl = menu;
+
+                    const closeHandler = (ev) => {
+                        if (menu.contains(ev.target)) return;
+                        removeContextMenu();
+                        document.removeEventListener("mousedown", closeHandler);
+                    };
+                    setTimeout(() => document.addEventListener("mousedown", closeHandler), 0);
+                }
+
+                // Escape closes an open context menu first; with none open, it
+                // clears the current selection (same two-step precedence as
+                // comfyui-workfloworganizer).
+                const escapeHandler = (e) => {
+                    if (e.key !== "Escape") return;
+                    if (contextMenuEl) { removeContextMenu(); return; }
+                    clearSelection();
+                };
+                document.addEventListener("keydown", escapeHandler);
 
                 function updateSelectionBar() {
                     const n = selectedPromptIds.size;
@@ -465,27 +563,44 @@ app.registerExtension({
                         const data = await res.json();
                         const listEl = panel.querySelector("#smart-queue-list");
                         listEl.innerHTML = "";
+                        orderedIds = data.items.map((i) => i.prompt_id);
                         if (data.items.length === 0) {
                             listEl.innerHTML = '<li class="smart-queue-empty">Nothing queued</li>';
                         }
                         for (const item of data.items) {
                             const li = document.createElement("li");
-                            li.draggable = true;
+                            // A running job can never actually be reordered —
+                            // reorder_pending_queue only knows about PromptQueue's
+                            // pending heap, so a running ID silently drops out of
+                            // any drag that includes it. Don't offer a drag the
+                            // server will just ignore.
+                            li.draggable = item.status !== "running";
                             li.dataset.promptId = item.prompt_id;
                             li.classList.toggle("smart-queue-item-held", item.status === "held");
                             li.classList.toggle("smart-queue-item-running", item.status === "running");
+                            li.classList.toggle("smart-queue-item-selected", selectedPromptIds.has(item.prompt_id));
 
-                            const checkbox = document.createElement("input");
-                            checkbox.type = "checkbox";
-                            checkbox.className = "smart-queue-item-checkbox";
-                            checkbox.checked = selectedPromptIds.has(item.prompt_id);
-                            checkbox.addEventListener("click", (e) => e.stopPropagation());
-                            checkbox.addEventListener("change", () => {
-                                if (checkbox.checked) selectedPromptIds.add(item.prompt_id);
-                                else selectedPromptIds.delete(item.prompt_id);
-                                updateSelectionBar();
+                            li.addEventListener("click", (e) => {
+                                if (e.ctrlKey || e.metaKey) {
+                                    e.stopPropagation();
+                                    if (selectedPromptIds.has(item.prompt_id)) selectedPromptIds.delete(item.prompt_id);
+                                    else selectedPromptIds.add(item.prompt_id);
+                                    selectionAnchorId = item.prompt_id;
+                                    applySelectionStyles();
+                                    updateSelectionBar();
+                                } else if (e.shiftKey && selectionAnchorId) {
+                                    e.stopPropagation();
+                                    selectRange(selectionAnchorId, item.prompt_id);
+                                    applySelectionStyles();
+                                    updateSelectionBar();
+                                } else {
+                                    clearSelection();
+                                    selectionAnchorId = item.prompt_id;
+                                }
                             });
-                            li.appendChild(checkbox);
+                            li.addEventListener("contextmenu", (e) => {
+                                showQueueContextMenu(e, item.prompt_id, item.name, nameSpan);
+                            });
 
                             if (item.status === "held") {
                                 const badge = document.createElement("span");
@@ -518,7 +633,11 @@ app.registerExtension({
                                 listEl.querySelectorAll(".smart-queue-drop-target").forEach((el) => el.classList.remove("smart-queue-drop-target"));
                             });
                             li.addEventListener("dragover", (e) => {
-                                if (!dragSourceId || dragSourceId === item.prompt_id) return;
+                                if (!dragSourceId) return;
+                                const moving = (selectedPromptIds.has(dragSourceId) && selectedPromptIds.size > 1)
+                                    ? selectedPromptIds
+                                    : new Set([dragSourceId]);
+                                if (moving.has(item.prompt_id)) return;
                                 e.preventDefault();
                                 li.classList.add("smart-queue-drop-target");
                             });
@@ -526,17 +645,25 @@ app.registerExtension({
                             li.addEventListener("drop", async (e) => {
                                 e.preventDefault();
                                 li.classList.remove("smart-queue-drop-target");
-                                if (!dragSourceId || dragSourceId === item.prompt_id) return;
+                                if (!dragSourceId) return;
+                                // Dragging a row that's part of a multi-selection moves the
+                                // whole selected group together (preserving their relative
+                                // order), not just the row the user happened to grab — same
+                                // as comfyui-workfloworganizer's multi-drag behavior.
                                 const ids = data.items.map((i) => i.prompt_id);
-                                const fromIdx = ids.indexOf(dragSourceId);
-                                const toIdx = ids.indexOf(item.prompt_id);
+                                const movingIds = (selectedPromptIds.has(dragSourceId) && selectedPromptIds.size > 1)
+                                    ? ids.filter((id) => selectedPromptIds.has(id))
+                                    : [dragSourceId];
                                 dragSourceId = null;
-                                if (fromIdx === -1 || toIdx === -1) return;
-                                ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+                                if (movingIds.includes(item.prompt_id)) return;
+                                const remaining = ids.filter((id) => !movingIds.includes(id));
+                                const toIdx = remaining.indexOf(item.prompt_id);
+                                if (toIdx === -1) return;
+                                remaining.splice(toIdx, 0, ...movingIds);
                                 try {
                                     await fetch("/smart_queue/reorder", {
                                         method: "POST",
-                                        body: JSON.stringify({ ordered_prompt_ids: ids }),
+                                        body: JSON.stringify({ ordered_prompt_ids: remaining }),
                                         headers: { "Content-Type": "application/json" },
                                     });
                                 } catch (err) {
@@ -596,6 +723,8 @@ app.registerExtension({
                     clearInterval(queueTimer);
                     clearInterval(historyTimer);
                     if (selectionBarEl) { selectionBarEl.remove(); selectionBarEl = null; }
+                    removeContextMenu();
+                    document.removeEventListener("keydown", escapeHandler);
                 };
             },
         });
