@@ -15,3 +15,6 @@ web/sounds/custom/
 docs/plans/
 docs/specs/
 docs/superpowers/
+
+# Local Claude Code session/config data — never intended for the repo
+.claude/
