@@ -1,5 +1,5 @@
 [project]
-name = "ComfyUI-SmartQueue"
+name = "comfyui-smartqueue"
 description = "GPU-aware queue autopilot plus a cooldown/pause/notify node for ComfyUI"
 version = "0.1.1"
 readme = "README.md"
