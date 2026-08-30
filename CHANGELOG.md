@@ -3,6 +3,12 @@
 All notable changes to Smart Queue are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1] - 2026-08-30
+
+### Fixed
+- Registry publish workflow: `REGISTRY_ACCESS_TOKEN` secret was never set, so publishing silently failed since it was added.
+- Package name changed from `comfyui-smartqueue` to `ComfyUI-SmartQueue` to match registry naming convention.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
