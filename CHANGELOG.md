@@ -3,6 +3,11 @@
 All notable changes to Smart Queue are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3] - 2026-08-30
+
+### Fixed
+- Registry `DisplayName` set to `ComfyUI-SmartQueue` (was `Smart Queue`) so the registry listing title/subtitle match the naming convention used by ComfyUI-CraftKit and ComfyUI-WorkflowOrganizer.
+
 ## [0.1.2] - 2026-08-30
 
 ### Fixed
