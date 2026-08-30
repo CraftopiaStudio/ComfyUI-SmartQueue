@@ -6,12 +6,16 @@ same IFileDialog COM interop via a hidden PowerShell/WinForms host.
 
 import asyncio
 import concurrent.futures
+import logging
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Callable
 
 from aiohttp import web
+
+logger = logging.getLogger(__name__)
 
 _dialog_lock = threading.Lock()
 # Must match the literal 'SMARTQUEUE_DIALOG_ERROR:' prefix written by the
@@ -21,8 +25,57 @@ _DIALOG_ERROR_PREFIX = "SMARTQUEUE_DIALOG_ERROR:"
 
 
 def _run_dialog(title: str) -> str:
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        return _run_dialog_windows(title)
+    if sys.platform == "darwin":
+        return _run_dialog_macos(title)
+    return _run_dialog_linux(title)
+
+
+def _run_dialog_macos(title: str) -> str:
+    escaped_title = title.replace('"', '\\"')
+    script = f'POSIX path of (choose file with prompt "{escaped_title}")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=300
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return ""
+    if result.returncode != 0:
+        return ""  # cancelled, or osascript itself is unavailable
+    return result.stdout.strip()
+
+
+# Tried in order; the first one actually installed handles the pick. Neither
+# is a hard dependency — most desktop Linux distros ship one or the other,
+# and a machine with neither just gets no picker (log + empty return), same
+# fail-open philosophy as a missing nvidia-smi.
+_LINUX_PICKER_COMMANDS = [
+    lambda title: ["zenity", "--file-selection", f"--title={title}"],
+    lambda title: ["kdialog", "--getopenfilename", str(Path.home()), "--title", title],
+]
+
+
+def _run_dialog_linux(title: str) -> str:
+    for build_cmd in _LINUX_PICKER_COMMANDS:
+        try:
+            result = subprocess.run(build_cmd(title), capture_output=True, text=True, timeout=300)
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            return ""
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return ""  # user cancelled in the dialog that did run
+
+    logger.warning(
+        "[Smart Queue] No file picker found (tried zenity, kdialog) — install one of "
+        "these to use the custom sound picker, or type a file path manually."
+    )
+    return ""
+
+
+def _run_dialog_windows(title: str) -> str:
     # FOS_FORCEFILESYSTEM — plain PowerShell hex syntax, not C#'s "0x40u"
     # literal suffix (that parses fine inside the Add-Type C# block above,
     # but this flags value is substituted into the PowerShell call site
