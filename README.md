@@ -21,7 +21,7 @@ Clone (or use ComfyUI Manager) into your `custom_nodes` folder:
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/CraftopiaStudio/comfyui-smart-queue.git
+git clone https://github.com/CraftopiaStudio/ComfyUI-SmartQueue.git
 ```
 
 No extra Python dependencies — it only shells out to `nvidia-smi`, which ships with any NVIDIA driver. Restart ComfyUI.

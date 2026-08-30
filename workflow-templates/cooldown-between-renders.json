@@ -102,7 +102,7 @@
         {"localized_name": "passthrough_2", "name": "passthrough_2", "type": "*", "links": null}
       ],
       "properties": {
-        "aux_id": "CraftopiaStudio/comfyui-smart-queue",
+        "aux_id": "CraftopiaStudio/ComfyUI-SmartQueue",
         "Node name for S&R": "SmartCooldownNode",
         "_sq_collapsed_NOTIFICATIONS": false,
         "_sq_collapsed_OPTIONS": true
