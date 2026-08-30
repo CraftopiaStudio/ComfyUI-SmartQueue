@@ -28,11 +28,13 @@ No extra Python dependencies — it only shells out to `nvidia-smi`, which ships
 
 ## The sidebar panel
 
-Open it from the left toolbar icon (**Smart Queue: GPU autopilot + render queue**). It shows two lists — **Pending/Running** and **History** — each with its own search box, plus a status row with the live GPU readout and a shortcut into **Settings → Smart Queue**. The toolbar also gets its own pause button (next to Run), highlighted blue while paused.
+Open it from the left toolbar icon (**Smart Queue: GPU autopilot + render queue**). It shows two lists — **Pending/Running** and **History** — each with its own search box, plus a status row with the live GPU readout and a shortcut into **Settings → Smart Queue**. The toolbar also gets its own pause button (next to Run), highlighted blue while paused:
 
-> Mockup below, with generic job names, illustrating the layout — not a live screenshot.
+<img src="docs/images/toolbar_pause_button.png" alt="Smart Queue toolbar pause button, highlighted blue while paused" width="420">
 
-<img src="docs/images/panel_mockup.png" alt="Smart Queue toolbar pause button and sidebar panel, mockup with generic job names" width="420">
+Screenshots below are from a real paused queue (job names are placeholders I renamed for the screenshot — everything else, including the thumbnails, badges and history, is live):
+
+<img src="docs/images/panel_real.png" alt="Smart Queue sidebar panel: held jobs and history with thumbnails" width="420">
 
 - **Click** a row to select it, **ctrl/cmd-click** to add to the selection, **shift-click** to select a range.
 - **Right-click** a row (or a multi-selection) for Rename / Cancel / Cancel & Requeue.
@@ -100,7 +102,7 @@ Both reference a placeholder checkpoint — swap the **Load Checkpoint** node fo
 
 ## Testing
 
-192 unit tests cover the autopilot rule engine, persistence, queue-hold logic, and routes as pure functions with no GPU or running ComfyUI instance required:
+200 unit tests cover the autopilot rule engine, persistence, queue-hold logic, and routes as pure functions with no GPU or running ComfyUI instance required:
 
 ```bash
 pytest tests/ -q -p no:warnings
