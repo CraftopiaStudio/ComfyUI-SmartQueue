@@ -134,11 +134,25 @@ class SmartCooldownNode(_NodeBase):
                     tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
                 ),
                 io.Boolean.Input("wait_for_click", default=False),
+                # Two independent passthrough lanes (not just one) so a single
+                # pause point can carry e.g. an image and its mask together —
+                # without this, carrying two related streams through one pause
+                # meant two separate cooldown nodes, which wait/cooldown twice
+                # instead of once. AnyType inputs render as sockets only (no
+                # widget), so adding a second one doesn't touch the widget-order
+                # fragility noted above.
                 io.AnyType.Input("passthrough", optional=True),
+                io.AnyType.Input("passthrough_2", optional=True),
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
                 io.String.Output("status"),
+                # Must stay last: ComfyUI links an output by positional index,
+                # not name, so anything declared after this would have its
+                # index shift if passthrough_2 were ever removed/reordered —
+                # see spec §32 for why that matters (a reverted attempt at
+                # hiding this socket dynamically broke exactly this way).
+                io.AnyType.Output("passthrough_2"),
             ],
             hidden=[io.Hidden.unique_id],
             is_output_node=True,
@@ -207,4 +221,4 @@ class SmartCooldownNode(_NodeBase):
             wait_for_continue(prompt_id, node_id=node_id)
             status += " | Continued by user click."
 
-        return io.NodeOutput(kwargs.get("passthrough"), status)
+        return io.NodeOutput(kwargs.get("passthrough"), status, kwargs.get("passthrough_2"))

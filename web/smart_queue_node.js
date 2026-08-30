@@ -206,6 +206,15 @@ function restoreWidgetValues(node, info) {
     }
 }
 
+// A dynamic hide-until-connected version of passthrough_2 was tried and
+// reverted (see spec §32 — live-tested: after a save/reload, ComfyUI
+// rebuilds a node's saved inputs in a different order than during live use,
+// and restores the actual link data only after node construction/nodeCreated
+// has already run — so a "hide it if it looks unlinked right now" check ran
+// before the link was back, and permanently dropped an already-connected
+// passthrough_2 on reload. Simplest correct fix: always show both lanes,
+// same as passthrough itself.
+
 function setNodeWaiting(node, waiting) {
     if (waiting) {
         let on = true;
