@@ -99,8 +99,8 @@
       ],
       "outputs": [
         {"localized_name": "passthrough", "name": "passthrough", "type": "*", "links": [11]},
-        {"localized_name": "status", "name": "status", "type": "STRING", "links": null},
-        {"localized_name": "passthrough_2", "name": "passthrough_2", "type": "*", "links": null}
+        {"localized_name": "passthrough_2", "name": "passthrough_2", "type": "*", "links": null},
+        {"localized_name": "status", "name": "status", "type": "STRING", "links": null}
       ],
       "properties": {
         "aux_id": "CraftopiaStudio/ComfyUI-SmartQueue",

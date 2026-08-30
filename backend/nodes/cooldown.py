@@ -145,6 +145,15 @@ class SmartCooldownNode(_NodeBase):
                 ),
                 io.Boolean.Input("wait_for_click", default=False),
             ],
+            # FROZEN ORDER — do not reorder, insert into, or remove from this
+            # list. ComfyUI links an output by positional index, not by name,
+            # so any change here silently repoints the links in every saved
+            # workflow that uses this node (see spec §32: a reverted attempt at
+            # hiding passthrough_2 dynamically broke exactly this way).
+            # The two passthrough sockets were grouped together ahead of status
+            # in 0.1.0, before first publication to the Comfy registry — that
+            # was the last moment this was free to change. It no longer is:
+            # anything new goes on the end.
             outputs=[
                 io.AnyType.Output("passthrough"),
                 io.AnyType.Output("passthrough_2"),
