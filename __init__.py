@@ -14,6 +14,7 @@ except ImportError:
 from .backend.autopilot import AutopilotSettings
 from .backend.autopilot_loop import run_autopilot_tick
 from .backend.autopilot_state import AutopilotState
+from .backend.db_location import resolve_db_path
 from .backend.gpu_monitor import poll_gpu_metrics
 from .backend.nodes.cooldown import SmartCooldownNode
 from .backend.persistence import (
@@ -141,7 +142,13 @@ def _is_autopilot_enabled() -> bool:
 
 
 if _HAS_COMFY_SERVER:
-    _db_path = str(Path(__file__).parent / "smart_queue.sqlite3")
+    try:
+        import folder_paths  # type: ignore[import-not-found]
+        _get_system_user_directory = folder_paths.get_system_user_directory
+    except (ImportError, AttributeError):
+        _get_system_user_directory = None
+
+    _db_path = str(resolve_db_path(Path(__file__).parent, _get_system_user_directory))
     _conn = init_db(_db_path)
 
     _server = PromptServer.instance
