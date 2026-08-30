@@ -147,13 +147,8 @@ class SmartCooldownNode(_NodeBase):
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
-                io.String.Output("status"),
-                # Must stay last: ComfyUI links an output by positional index,
-                # not name, so anything declared after this would have its
-                # index shift if passthrough_2 were ever removed/reordered —
-                # see spec §32 for why that matters (a reverted attempt at
-                # hiding this socket dynamically broke exactly this way).
                 io.AnyType.Output("passthrough_2"),
+                io.String.Output("status"),
             ],
             hidden=[io.Hidden.unique_id],
             is_output_node=True,
@@ -222,4 +217,4 @@ class SmartCooldownNode(_NodeBase):
             wait_for_continue(prompt_id, node_id=node_id)
             status += " | Continued by user click."
 
-        return io.NodeOutput(kwargs.get("passthrough"), status, kwargs.get("passthrough_2"))
+        return io.NodeOutput(kwargs.get("passthrough"), kwargs.get("passthrough_2"), status)
