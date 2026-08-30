@@ -1,12 +1,12 @@
 [project]
-name = "comfyui-smart-queue"
+name = "comfyui-smartqueue"
 description = "GPU-aware queue autopilot plus a cooldown/pause/notify node for ComfyUI"
-version = "0.0.1"
+version = "0.1.0"
 license = { file = "LICENSE" }
 dependencies = []
 
 [project.urls]
-Repository = "https://github.com/CraftopiaStudio/comfyui-smart-queue"
+Repository = "https://github.com/CraftopiaStudio/ComfyUI-SmartQueue"
 
 [tool.comfy]
 PublisherId = "craftopiastudio"
