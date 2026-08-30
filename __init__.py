@@ -28,6 +28,7 @@ from .backend.queue_hold_sync import sync_queue_hold
 from .backend.queue_middleware import create_queue_middleware
 from .backend.queue_tracker import sync_queue_tracker
 from .backend.routes import register_routes
+from .backend.vram_free_on_pause import maybe_free_vram_on_pause
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,25 @@ HISTORY_CLEANUP_INTERVAL = timedelta(hours=1)
 async def _async_poll_gpu_metrics():
     # poll_gpu_metrics is a blocking subprocess call; keep it off the event loop.
     return await asyncio.to_thread(poll_gpu_metrics)
+
+
+def _maybe_free_vram_on_pause_tick() -> None:
+    import gc
+
+    import comfy.model_management as model_management
+
+    def _clear_cache():
+        gc.collect()
+        model_management.soft_empty_cache()
+
+    running, _queued = _server.prompt_queue.get_current_queue_volatile()
+    maybe_free_vram_on_pause(
+        _autopilot_state,
+        _autopilot_settings,
+        running=running,
+        unload_fn=model_management.unload_all_models,
+        cache_fn=_clear_cache,
+    )
 
 
 def _sync_queue_tracker_tick(conn) -> None:
@@ -95,6 +115,10 @@ async def _autopilot_background_loop(conn):
             sync_queue_hold(conn, _autopilot_state, _queue_hold, _server.prompt_queue)
         except Exception:
             logger.warning("Smart Queue: autopilot queue-hold sync failed, skipping this tick", exc_info=True)
+        try:
+            _maybe_free_vram_on_pause_tick()
+        except Exception:
+            logger.warning("Smart Queue: free-VRAM-on-pause check failed, skipping this tick", exc_info=True)
         try:
             # Sync sqlite3 connections are bound to the thread that created them
             # (this loop's thread), so this must run inline, not via asyncio.to_thread.

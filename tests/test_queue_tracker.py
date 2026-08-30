@@ -1,6 +1,11 @@
 from backend.autopilot_state import AutopilotState
 from backend.persistence import init_db, list_history, list_queue_items
-from backend.queue_tracker import extract_job_name, sync_queue_tracker
+from backend.queue_tracker import (
+    extract_job_name,
+    extract_thumbnail_query,
+    extract_workflow_json,
+    sync_queue_tracker,
+)
 
 
 def make_item(prompt_id, extra_data=None):
@@ -21,6 +26,72 @@ def test_extract_job_name_from_workflow_name_fallback():
 def test_extract_job_name_falls_back_to_timestamp_when_missing():
     name = extract_job_name({})
     assert name.startswith("Job ")
+
+
+def test_extract_thumbnail_query_from_first_image_output():
+    entry = {"outputs": {"9": {"images": [{"filename": "a.png", "subfolder": "sub", "type": "output"}]}}}
+    assert extract_thumbnail_query(entry) == "filename=a.png&subfolder=sub&type=output"
+
+
+def test_extract_thumbnail_query_returns_none_when_no_images():
+    assert extract_thumbnail_query({"outputs": {"9": {}}}) is None
+    assert extract_thumbnail_query({}) is None
+    assert extract_thumbnail_query({"outputs": None}) is None
+
+
+def test_extract_thumbnail_query_url_encodes_filename():
+    entry = {"outputs": {"9": {"images": [{"filename": "my file.png", "subfolder": "", "type": "output"}]}}}
+    assert extract_thumbnail_query(entry) == "filename=my+file.png&subfolder=&type=output"
+
+
+def test_extract_workflow_json_from_extra_pnginfo():
+    extra_data = {"extra_pnginfo": {"workflow": {"nodes": [1, 2]}}}
+    assert extract_workflow_json(extra_data) == '{"nodes": [1, 2]}'
+
+
+def test_extract_workflow_json_returns_none_when_missing():
+    assert extract_workflow_json({}) is None
+    assert extract_workflow_json({"extra_pnginfo": {}}) is None
+
+
+def test_sync_stores_thumbnail_and_workflow_json_on_completion(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    extra_data = {"extra_pnginfo": {"workflow": {"nodes": []}}}
+    history = {
+        "a": {
+            "prompt": make_item("a", extra_data),
+            "outputs": {"9": {"images": [{"filename": "a.png", "subfolder": "", "type": "output"}]}},
+        }
+    }
+
+    sync_queue_tracker(conn, [], [], history=history, autopilot_state=state, seen_running=set(), seen_completed=set())
+
+    row = list_history(conn)[0]
+    assert row["thumbnail_path"] == "filename=a.png&subfolder=&type=output"
+    assert row["workflow_json"] == '{"nodes": []}'
+
+
+def test_sync_records_started_at_when_job_starts_running(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    running = [make_item("a")]
+
+    sync_queue_tracker(conn, running, [], history={}, autopilot_state=state, seen_running=set(), seen_completed=set())
+
+    assert list_queue_items(conn)[0]["started_at"] is not None
+
+
+def test_sync_leaves_started_at_null_for_job_never_seen_running(tmp_path):
+    """Started+finished inside one tick gap (documented edge case) never gets
+    a started_at, so its duration_seconds stays NULL downstream (spec §29 #3)."""
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    history = {"a": {"prompt": make_item("a")}}
+
+    sync_queue_tracker(conn, [], [], history=history, autopilot_state=state, seen_running=set(), seen_completed=set())
+
+    assert list_history(conn)[0]["duration_seconds"] is None
 
 
 def test_sync_adds_new_running_and_queued_items(tmp_path):

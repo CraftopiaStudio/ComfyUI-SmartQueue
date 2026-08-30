@@ -6,6 +6,7 @@ from backend.persistence import (
     remove_queue_item,
     rename_queue_item,
     mark_completed,
+    mark_queue_item_started,
     list_history,
     save_held_items,
     load_held_items,
@@ -57,6 +58,47 @@ def test_mark_completed_moves_item_into_history(tmp_path):
     assert len(history) == 1
     assert history[0]["prompt_id"] == "a"
     assert history[0]["thumbnail_path"] == "/thumbs/a.png"
+
+
+def test_mark_completed_stores_workflow_json(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="First")
+    mark_completed(conn, prompt_id="a", workflow_json='{"nodes": []}')
+    history = list_history(conn)
+    assert history[0]["workflow_json"] == '{"nodes": []}'
+
+
+def test_mark_completed_without_started_at_leaves_duration_null(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="First")
+    mark_completed(conn, prompt_id="a")
+    history = list_history(conn)
+    assert history[0]["duration_seconds"] is None
+
+
+def test_mark_completed_computes_duration_from_started_at(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="First")
+    mark_queue_item_started(conn, prompt_id="a")
+    conn.execute(
+        "UPDATE queue_items SET started_at = '2026-01-01T00:00:00+00:00' WHERE prompt_id = 'a'"
+    )
+    conn.commit()
+
+    mark_completed(conn, prompt_id="a")
+    history = list_history(conn)
+    # started_at was forced to a fixed point in the past, so duration is
+    # effectively "now - that point" — just assert it's a large positive
+    # number, not an exact value (avoids a flaky exact-time assertion).
+    assert history[0]["duration_seconds"] > 0
+
+
+def test_mark_queue_item_started_sets_timestamp(tmp_path):
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    add_queue_item(conn, prompt_id="a", name="First")
+    mark_queue_item_started(conn, prompt_id="a")
+    items = list_queue_items(conn)
+    assert items[0]["started_at"] is not None
 
 
 def test_persistence_survives_reopening_the_same_file(tmp_path):

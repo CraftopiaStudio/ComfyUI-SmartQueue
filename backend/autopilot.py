@@ -35,6 +35,12 @@ class AutopilotSettings:
 
     history_retention_days: int = 30
 
+    # One combined toggle (unload models + clear cache together), not the
+    # Smart Cooldown node's two-flag granularity — the queue-level use case
+    # is just "give me my VRAM back while paused", not fine control (spec
+    # §29 #27).
+    free_vram_on_pause: bool = False
+
     def update_from_dict(self, values: dict) -> None:
         """Mutates in place so callers holding a reference (the background
         loop, the middleware's is_enabled closure) see updates immediately.

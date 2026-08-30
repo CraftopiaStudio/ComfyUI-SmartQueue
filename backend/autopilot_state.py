@@ -21,6 +21,11 @@ class AutopilotState:
         # independent trackers would double-hold or release too early
         # whenever both sources are active at once (spec §26.2).
         self._last_effective_paused: bool = False
+        # One-shot guard for maybe_free_vram_on_pause (spec §29 #27): set the
+        # moment VRAM has been freed for the current pause period, reset the
+        # moment effective_paused goes back to False, so it fires exactly
+        # once per pause rather than every tick.
+        self.vram_freed_for_pause: bool = False
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused

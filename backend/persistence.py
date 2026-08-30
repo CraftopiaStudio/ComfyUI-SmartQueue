@@ -31,12 +31,31 @@ CREATE TABLE IF NOT EXISTS manual_pause_state (
 );
 """
 
+# Columns added after the tables above already shipped (spec §29/§6/#3) —
+# CREATE TABLE IF NOT EXISTS never touches a table that already exists, so an
+# existing smart_queue.sqlite3 needs these added explicitly or it keeps
+# missing them forever.
+_ADDED_COLUMNS = {
+    "queue_items": [("started_at", "TEXT")],
+    "history": [("workflow_json", "TEXT"), ("duration_seconds", "REAL")],
+}
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, col_type in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
+    conn.commit()
+
 
 def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     conn.commit()
+    _migrate_schema(conn)
     return conn
 
 
@@ -89,12 +108,31 @@ def remove_queue_item(conn: sqlite3.Connection, prompt_id: str) -> None:
     conn.commit()
 
 
-def mark_completed(conn: sqlite3.Connection, prompt_id: str, thumbnail_path: str | None = None) -> None:
-    row = conn.execute("SELECT name FROM queue_items WHERE prompt_id = ?", (prompt_id,)).fetchone()
-    name = row["name"] if row else prompt_id
+def mark_queue_item_started(conn: sqlite3.Connection, prompt_id: str) -> None:
     conn.execute(
-        "INSERT INTO history (prompt_id, name, thumbnail_path, completed_at) VALUES (?, ?, ?, ?)",
-        (prompt_id, name, thumbnail_path, datetime.now(timezone.utc).isoformat()),
+        "UPDATE queue_items SET started_at = ? WHERE prompt_id = ?",
+        (datetime.now(timezone.utc).isoformat(), prompt_id),
+    )
+    conn.commit()
+
+
+def mark_completed(
+    conn: sqlite3.Connection,
+    prompt_id: str,
+    thumbnail_path: str | None = None,
+    workflow_json: str | None = None,
+) -> None:
+    row = conn.execute("SELECT name, started_at FROM queue_items WHERE prompt_id = ?", (prompt_id,)).fetchone()
+    name = row["name"] if row else prompt_id
+    completed_at = datetime.now(timezone.utc)
+    duration_seconds = None
+    if row and row["started_at"]:
+        started_at = datetime.fromisoformat(row["started_at"])
+        duration_seconds = (completed_at - started_at).total_seconds()
+    conn.execute(
+        "INSERT INTO history (prompt_id, name, thumbnail_path, workflow_json, duration_seconds, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (prompt_id, name, thumbnail_path, workflow_json, duration_seconds, completed_at.isoformat()),
     )
     conn.execute("DELETE FROM queue_items WHERE prompt_id = ?", (prompt_id,))
     conn.commit()

@@ -78,6 +78,13 @@ app.registerExtension({
             defaultValue: 30,
             category: ["SmartQueue", "5. History", "Delete history older than this many days (0 = never)"],
         },
+        {
+            id: "SmartQueue.FreeVramOnPause",
+            name: "Free VRAM when paused (unload models + clear cache, once the running job finishes)",
+            type: "boolean",
+            defaultValue: false,
+            category: ["SmartQueue", "6. Pause", "Free VRAM when paused (unload models + clear cache, once the running job finishes)"],
+        },
     ],
     async setup() {
         if (!document.getElementById("smart-queue-stylesheet")) {
@@ -100,6 +107,7 @@ app.registerExtension({
                 max_jobs_before_pause: app.extensionManager.setting.get("SmartQueue.MaxJobsBeforePause"),
                 job_count_break_minutes: app.extensionManager.setting.get("SmartQueue.JobCountBreakMinutes"),
                 history_retention_days: app.extensionManager.setting.get("SmartQueue.HistoryRetentionDays"),
+                free_vram_on_pause: app.extensionManager.setting.get("SmartQueue.FreeVramOnPause"),
             };
             try {
                 await fetch("/smart_queue/settings", {
@@ -715,6 +723,23 @@ app.registerExtension({
                     }
                 }
 
+                function formatDuration(seconds) {
+                    if (seconds === null || seconds === undefined) return "";
+                    const total = Math.round(seconds);
+                    if (total < 60) return `${total}s`;
+                    return `${Math.floor(total / 60)}m ${total % 60}s`;
+                }
+
+                async function restoreWorkflowFromHistory(item) {
+                    if (!item.workflow_json) return;
+                    try {
+                        const workflow = JSON.parse(item.workflow_json);
+                        await app.loadGraphData(workflow);
+                    } catch (err) {
+                        console.error("[Smart Queue] failed to restore workflow from history thumbnail:", err);
+                    }
+                }
+
                 async function refreshHistory() {
                     try {
                         const q = panel.querySelector("#smart-queue-history-search").value.trim();
@@ -728,7 +753,28 @@ app.registerExtension({
                         }
                         for (const item of data.items) {
                             const li = document.createElement("li");
-                            li.textContent = item.name;
+                            if (item.thumbnail_path) {
+                                const img = document.createElement("img");
+                                img.className = "smart-queue-thumb";
+                                img.src = `/view?${item.thumbnail_path}`;
+                                img.loading = "lazy";
+                                img.title = item.workflow_json ? "Click to restore this workflow" : "";
+                                if (item.workflow_json) {
+                                    img.addEventListener("click", () => restoreWorkflowFromHistory(item));
+                                }
+                                li.appendChild(img);
+                            }
+                            const nameEl = document.createElement("span");
+                            nameEl.className = "smart-queue-history-name";
+                            nameEl.textContent = item.name;
+                            li.appendChild(nameEl);
+                            const durationText = formatDuration(item.duration_seconds);
+                            if (durationText) {
+                                const durationEl = document.createElement("span");
+                                durationEl.className = "smart-queue-duration";
+                                durationEl.textContent = durationText;
+                                li.appendChild(durationEl);
+                            }
                             listEl.appendChild(li);
                         }
                     } catch (err) {

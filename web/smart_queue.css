@@ -129,6 +129,31 @@
 #smart-queue-panel .smart-queue-history li {
     cursor: default;
     opacity: 0.8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#smart-queue-panel .smart-queue-thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+#smart-queue-panel .smart-queue-history-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#smart-queue-panel .smart-queue-duration {
+    opacity: 0.6;
+    font-size: 11px;
+    flex-shrink: 0;
 }
 
 #smart-queue-panel .smart-queue-empty {
