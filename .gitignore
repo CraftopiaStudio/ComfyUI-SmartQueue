@@ -10,3 +10,8 @@ node_modules/
 
 # User-picked notification sounds, copied in by backend/sound_library.py
 web/sounds/custom/
+
+# Internal planning/spec docs — not meant for the public repo
+docs/plans/
+docs/specs/
+docs/superpowers/
