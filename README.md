@@ -102,13 +102,19 @@ Both reference a placeholder checkpoint — swap the **Load Checkpoint** node fo
 
 ## Testing
 
-200 unit tests cover the autopilot rule engine, persistence, queue-hold logic, and routes as pure functions with no GPU or running ComfyUI instance required:
+210 unit tests cover the autopilot rule engine, persistence, queue-hold logic, and routes as pure functions with no GPU or running ComfyUI instance required:
 
 ```bash
 pytest tests/ -q -p no:warnings
 ```
 
-Frontend behavior (the panel, drag-reorder, the node's widgets, notifications) is verified by hand against a running ComfyUI instance — see `docs/specs/2026-08-28-smart-queue-design.md` for the full history of what's been built and verified, section by section.
+Pure frontend logic (currently `formatDuration`) has automated tests via Node's built-in test runner, no npm dependency required:
+
+```bash
+node --test web/tests/test_format_duration.js
+```
+
+The rest of the frontend (the panel, drag-reorder, the node's widgets, notifications) is verified by hand against a running ComfyUI instance — see `docs/specs/2026-08-28-smart-queue-design.md` for the full history of what's been built and verified, section by section.
 
 ## License
 

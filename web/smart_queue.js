@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { formatDuration } from "./format_duration.js";
 
 app.registerExtension({
     name: "SmartQueue.Panel",
@@ -721,13 +722,6 @@ app.registerExtension({
                     } catch (err) {
                         console.error("[Smart Queue] queue fetch failed:", err);
                     }
-                }
-
-                function formatDuration(seconds) {
-                    if (seconds === null || seconds === undefined) return "";
-                    const total = Math.round(seconds);
-                    if (total < 60) return `${total}s`;
-                    return `${Math.floor(total / 60)}m ${total % 60}s`;
                 }
 
                 async function restoreWorkflowFromHistory(item) {
