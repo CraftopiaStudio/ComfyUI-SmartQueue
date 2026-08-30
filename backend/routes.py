@@ -8,8 +8,25 @@ from aiohttp import web
 
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
-from .continue_registry import signal_continue
-from .persistence import list_history, list_queue_items, reorder_queue_items
+from .continue_registry import list_pending, signal_cancel, signal_continue
+from .native_dialog import browse_path
+from .sound_library import import_sound
+from .persistence import (
+    list_history,
+    list_queue_items,
+    remove_queue_item,
+    rename_queue_item,
+    reorder_queue_items,
+    save_held_items,
+    save_manual_pause,
+)
+from .queue_hold import (
+    QueueHold,
+    cancel_queue_item,
+    reorder_pending_queue,
+    requeue_item_at_back,
+)
+from .queue_hold_sync import sync_queue_hold
 
 
 def register_routes(
@@ -17,30 +34,146 @@ def register_routes(
     conn: sqlite3.Connection,
     state: AutopilotState,
     settings: AutopilotSettings,
+    queue_hold: QueueHold | None = None,
+    prompt_queue=None,
 ) -> None:
     async def get_status(request: web.Request) -> web.Response:
+        metrics = state.last_metrics
         return web.json_response({
             "is_paused": state.effective_paused,
             "reasons": list(state.effective_reasons),
             "manual_paused": state.manual_paused,
             "autopilot_paused": state.is_paused,
+            "temp_c": metrics.temp_c if metrics else None,
+            "vram_used_mb": metrics.vram_used_mb if metrics else None,
+            "vram_total_mb": metrics.vram_total_mb if metrics else None,
         })
 
     async def post_manual_pause(request: web.Request) -> web.Response:
         payload = await request.json()
-        state.set_manual_pause(bool(payload.get("paused", True)))
-        return web.json_response({"ok": True, "manual_paused": state.manual_paused})
+        paused = bool(payload.get("paused", True))
+        state.set_manual_pause(paused)
+        # Persisted independently of held_items (spec §29 #11) — held_items
+        # is only ever non-empty while something was actually queued during
+        # the pause, so it can't cover a pause with nothing in flight.
+        save_manual_pause(conn, paused)
+
+        held = released = 0
+        if queue_hold is not None and prompt_queue is not None:
+            # Shared with the autopilot loop (backend/queue_hold_sync.py) so a
+            # pause from either source holds/releases already-queued jobs the
+            # same way, on one combined effective_paused edge-trigger rather
+            # than each source tracking its own was_paused/now_paused — two
+            # independent trackers would double-hold or release too early
+            # whenever manual and autopilot pauses overlap (spec §26.2).
+            transition, count = sync_queue_hold(conn, state, queue_hold, prompt_queue)
+            if transition == "held":
+                held = count
+            elif transition == "released":
+                released = count
+
+        return web.json_response({
+            "ok": True,
+            "manual_paused": state.manual_paused,
+            "held": held,
+            "released": released,
+        })
 
     async def get_queue(request: web.Request) -> web.Response:
-        return web.json_response({"items": list_queue_items(conn)})
+        items = list_queue_items(
+            conn,
+            name_contains=request.query.get("name"),
+        )
+        # queue_tracker never persists a "running" status onto a row (only
+        # "pending"/"held") — overlay it here at read time from the live
+        # PromptQueue instead, so a currently-executing job's row still
+        # shows "pending" in the DB (untouched, no extra write on every
+        # tick) but the panel can tell it apart from a job that's actually
+        # waiting behind the pause gate.
+        if prompt_queue is not None:
+            try:
+                running, _queued = prompt_queue.get_current_queue_volatile()
+                running_ids = {job[1] for job in running}
+            except Exception:
+                running_ids = set()
+            for item in items:
+                if item["prompt_id"] in running_ids:
+                    item["status"] = "running"
+        return web.json_response({"items": items})
 
     async def post_reorder(request: web.Request) -> web.Response:
         payload = await request.json()
-        reorder_queue_items(conn, payload["ordered_prompt_ids"])
+        ordered_prompt_ids = payload["ordered_prompt_ids"]
+        reorder_queue_items(conn, ordered_prompt_ids)
+        if prompt_queue is not None:
+            reorder_pending_queue(prompt_queue, ordered_prompt_ids)
+        if queue_hold is not None and queue_hold.has_held:
+            queue_hold.reorder_held(ordered_prompt_ids)
+            save_held_items(conn, queue_hold.items)
         return web.json_response({"ok": True})
 
+    async def post_rename(request: web.Request) -> web.Response:
+        payload = await request.json()
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return web.json_response({"error": "name must not be blank"}, status=400)
+        rename_queue_item(conn, prompt_id=payload["prompt_id"], name=name)
+        return web.json_response({"ok": True})
+
+    async def post_cancel(request: web.Request) -> web.Response:
+        payload = await request.json()
+        prompt_ids = payload.get("prompt_ids", [])
+        requeue = bool(payload.get("requeue", False))
+        cancelled = requeued = 0
+        if prompt_queue is not None:
+            held_ids = {item[1] for item in queue_hold.items} if queue_hold is not None else set()
+            running_ids = {item[1] for item in prompt_queue.get_current_queue_volatile()[0]}
+            for prompt_id in prompt_ids:
+                item = cancel_queue_item(prompt_queue, prompt_id)
+                if item is None:
+                    # Not in the real pending queue. Never touch a genuinely
+                    # running job (matches "never interrupt a running job").
+                    # A held job is prunable though: it can't be reached via
+                    # cancel_queue_item (manual pause owns it, per §14) but
+                    # the panel still offers Cancel on those rows, so handle
+                    # it against QueueHold directly instead of silently
+                    # no-oping (spec §26.2). Otherwise it's an orphan: a
+                    # tracked row whose underlying ComfyUI job is gone for
+                    # good (e.g. ComfyUI was restarted while it was in
+                    # flight) — remove the stale row so it doesn't sit stuck
+                    # in "pending" forever.
+                    if prompt_id in running_ids:
+                        continue
+                    if prompt_id in held_ids:
+                        if queue_hold is None:
+                            continue
+                        if requeue:
+                            if queue_hold.requeue_held_at_back(prompt_id):
+                                save_held_items(conn, queue_hold.items)
+                                cancelled += 1
+                                requeued += 1
+                        elif queue_hold.cancel_held(prompt_id) is not None:
+                            save_held_items(conn, queue_hold.items)
+                            remove_queue_item(conn, prompt_id=prompt_id)
+                            cancelled += 1
+                        continue
+                    remove_queue_item(conn, prompt_id=prompt_id)
+                    cancelled += 1
+                    continue
+                cancelled += 1
+                if requeue:
+                    requeue_item_at_back(prompt_queue, item)
+                    requeued += 1
+                else:
+                    remove_queue_item(conn, prompt_id=prompt_id)
+        return web.json_response({"cancelled": cancelled, "requeued": requeued})
+
     async def get_history(request: web.Request) -> web.Response:
-        return web.json_response({"items": list_history(conn)})
+        items = list_history(
+            conn,
+            name_contains=request.query.get("name"),
+        )
+        return web.json_response({"items": items})
 
     async def get_settings(request: web.Request) -> web.Response:
         return web.json_response(asdict(settings))
@@ -55,6 +188,24 @@ def register_routes(
         signal_continue(prompt_id)
         return web.json_response({"ok": True})
 
+    async def post_cancel_wait(request: web.Request) -> web.Response:
+        prompt_id = request.match_info["prompt_id"]
+        signal_cancel(prompt_id)
+        return web.json_response({"ok": True})
+
+    async def get_pending_waits(request: web.Request) -> web.Response:
+        return web.json_response({"items": list_pending()})
+
+    async def post_browse_sound_file(request: web.Request) -> web.Response:
+        # import_sound copies the pick into web/sounds/custom and returns a
+        # path relative to web/ — the browser cannot load a raw filesystem
+        # path, so handing back the picked path directly never worked.
+        return await browse_path(
+            request,
+            title="Select notification sound",
+            transform=import_sound,
+        )
+
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)
     app.router.add_post("/smart_queue/reorder", post_reorder)
@@ -62,4 +213,9 @@ def register_routes(
     app.router.add_get("/smart_queue/settings", get_settings)
     app.router.add_post("/smart_queue/settings", post_settings)
     app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
+    app.router.add_post("/smart_queue/cancel_wait/{prompt_id}", post_cancel_wait)
+    app.router.add_get("/smart_queue/pending_waits", get_pending_waits)
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
+    app.router.add_post("/smart_queue/rename", post_rename)
+    app.router.add_post("/smart_queue/cancel", post_cancel)
+    app.router.add_post("/smart_queue/browse_sound_file", post_browse_sound_file)

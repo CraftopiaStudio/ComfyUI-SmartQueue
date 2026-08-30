@@ -12,7 +12,7 @@ def test_fixed_delay_is_applied():
         max_wait_seconds=300.0,
         unload_models_before_wait=False,
         sleep_fn=sleep_calls.append,
-        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0, 10.0),
+        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0),
         unload_fn=lambda: None,
     )
     assert sleep_calls == [10.0]
@@ -29,10 +29,28 @@ def test_unload_models_called_before_wait_when_enabled():
         max_wait_seconds=300.0,
         unload_models_before_wait=True,
         sleep_fn=lambda s: None,
-        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0, 10.0),
+        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0),
         unload_fn=lambda: unload_calls.append(True),
     )
     assert unload_calls == [True]
+
+
+def test_clear_cache_called_after_unload_when_enabled():
+    calls = []
+    run_cooldown(
+        fixed_delay_seconds=0.0,
+        wait_for_temp=False,
+        target_temp_c=65.0,
+        poll_interval_seconds=5.0,
+        max_wait_seconds=300.0,
+        unload_models_before_wait=True,
+        clear_cache_before_wait=True,
+        sleep_fn=lambda s: None,
+        metrics_fn=lambda: GpuMetrics(70.0, 1000.0, 8000.0),
+        unload_fn=lambda: calls.append("unload"),
+        cache_fn=lambda: calls.append("cache"),
+    )
+    assert calls == ["unload", "cache"]
 
 
 def test_waits_for_temp_until_below_target():
@@ -46,7 +64,7 @@ def test_waits_for_temp_until_below_target():
         max_wait_seconds=300.0,
         unload_models_before_wait=False,
         sleep_fn=sleep_calls.append,
-        metrics_fn=lambda: GpuMetrics(next(temps), 1000.0, 8000.0, 10.0),
+        metrics_fn=lambda: GpuMetrics(next(temps), 1000.0, 8000.0),
         unload_fn=lambda: None,
     )
     assert sleep_calls == [5.0, 5.0]
@@ -62,7 +80,7 @@ def test_temp_unavailable_skips_temp_wait():
         max_wait_seconds=300.0,
         unload_models_before_wait=False,
         sleep_fn=lambda s: None,
-        metrics_fn=lambda: GpuMetrics(None, None, None, None),
+        metrics_fn=lambda: GpuMetrics(None, None, None),
         unload_fn=lambda: None,
     )
     assert "unavailable" in status.lower()
@@ -82,7 +100,7 @@ def test_max_wait_seconds_caps_the_temp_wait():
         max_wait_seconds=12.0,
         unload_models_before_wait=False,
         sleep_fn=fake_sleep,
-        metrics_fn=lambda: GpuMetrics(90.0, 1000.0, 8000.0, 10.0),
+        metrics_fn=lambda: GpuMetrics(90.0, 1000.0, 8000.0),
         unload_fn=lambda: None,
         clock_fn=_make_fake_clock(elapsed),
     )

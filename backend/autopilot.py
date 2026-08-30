@@ -5,7 +5,7 @@ subprocess — that keeps it trivially unit-testable and lets the fail-open
 guarantee live entirely in the caller (backend.autopilot_loop).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from .gpu_monitor import GpuMetrics
 
@@ -14,22 +14,52 @@ from .gpu_monitor import GpuMetrics
 class AutopilotSettings:
     master_enabled: bool = True
 
-    temp_rule_enabled: bool = True
+    temp_rule_enabled: bool = False
     pause_temp_c: float = 80.0
     resume_temp_c: float = 72.0
 
-    vram_rule_enabled: bool = True
+    vram_rule_enabled: bool = False
     min_free_vram_mb: float = 1024.0
+    # Hysteresis gap, mirroring pause_temp_c/resume_temp_c above: without it,
+    # free VRAM hovering right at min_free_vram_mb flips should_pause every
+    # 5s tick, and each flip is now an edge that hold/releases the live queue
+    # (spec §26.2). Must resume_free_vram_mb > min_free_vram_mb.
+    resume_free_vram_mb: float = 1536.0
 
-    job_count_rule_enabled: bool = True
+    job_count_rule_enabled: bool = False
     max_jobs_before_pause: int = 20
+    # How long the break after a batch lasts. The rule pauses on a count, so
+    # without a duration nothing could ever end that pause — see
+    # autopilot_loop.run_autopilot_tick, which owns this clock.
+    job_count_break_minutes: float = 5.0
+
+    history_retention_days: int = 30
+
+    # One combined toggle (unload models + clear cache together), not the
+    # Smart Cooldown node's two-flag granularity — the queue-level use case
+    # is just "give me my VRAM back while paused", not fine control (spec
+    # §29 #27).
+    free_vram_on_pause: bool = False
 
     def update_from_dict(self, values: dict) -> None:
         """Mutates in place so callers holding a reference (the background
-        loop, the middleware's is_enabled closure) see updates immediately."""
+        loop, the middleware's is_enabled closure) see updates immediately.
+
+        Only real dataclass fields can be set (unknown keys, including
+        method names like "update_from_dict" itself, are ignored rather than
+        clobbering an attribute the object needs), and each value is coerced
+        to that field's declared type so a malformed request body fails
+        loudly here instead of crashing the next autopilot tick that reads
+        it (see spec §26.2)."""
+        field_types = {f.name: f.type for f in fields(self)}
         for key, value in values.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
+            target_type = field_types.get(key)
+            if target_type is None:
+                continue
+            try:
+                setattr(self, key, target_type(value))
+            except (TypeError, ValueError):
+                continue
 
 
 @dataclass
@@ -52,9 +82,10 @@ def evaluate(
             reasons.append(f"GPU at {metrics.temp_c:.0f}C, target {threshold:.0f}C")
 
     if settings.vram_rule_enabled and metrics.vram_free_mb is not None:
-        if metrics.vram_free_mb < settings.min_free_vram_mb:
+        vram_threshold = settings.resume_free_vram_mb if currently_paused else settings.min_free_vram_mb
+        if metrics.vram_free_mb < vram_threshold:
             reasons.append(
-                f"Only {metrics.vram_free_mb:.0f}MB VRAM free, below {settings.min_free_vram_mb:.0f}MB"
+                f"Only {metrics.vram_free_mb:.0f}MB VRAM free, below {vram_threshold:.0f}MB"
             )
 
     if settings.job_count_rule_enabled and jobs_since_resume >= settings.max_jobs_before_pause:

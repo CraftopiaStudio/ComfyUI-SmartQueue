@@ -1,6 +1,4 @@
-"""Smart Cooldown & Pause node (V3 schema). Node type ID stays RubzGpuCooldownNode
-for backward compatibility with workflows saved against the old rubz-gpu-cooldown pack.
-"""
+"""Smart Cooldown & Pause node (V3 schema)."""
 
 from typing import Callable
 
@@ -25,13 +23,26 @@ def run_cooldown(
     sleep_fn: Callable[[float], None],
     metrics_fn: Callable[[], GpuMetrics],
     unload_fn: Callable[[], None],
+    clear_cache_before_wait: bool = False,
+    cache_fn: Callable[[], None] | None = None,
     clock_fn: Callable[[], float] | None = None,
 ) -> str:
     log: list[str] = []
 
     if unload_models_before_wait:
+        # Drops the model weights, but the CUDA allocator still holds onto
+        # that memory in reserve for its own next allocation — nvidia-smi
+        # won't show it as freed until clear_cache_before_wait also runs.
         unload_fn()
         log.append("Unloaded all models")
+
+    if clear_cache_before_wait:
+        # gc.collect() first: a lingering Python reference to a tensor is
+        # exactly what stops the CUDA allocator from reclaiming it, so this
+        # needs to run before the cache-empty call, not just alongside it —
+        # matches ComfyUI's own "Free model and node cache" button (main.py).
+        cache_fn()
+        log.append("Cleared VRAM cache")
 
     if fixed_delay_seconds > 0:
         sleep_fn(fixed_delay_seconds)
@@ -72,34 +83,91 @@ class SmartCooldownNode(_NodeBase):
         if not _HAS_COMFY_IO:
             raise RuntimeError("comfy_api is not available in this environment")
         return io.Schema(
-            node_id="RubzGpuCooldownNode",
+            node_id="SmartCooldownNode",
             display_name="Smart Cooldown & Pause",
             category="utils",
+            # Declared in the exact order the node should display them in —
+            # the JS extension (web/smart_queue_node.js) only ever inserts
+            # section-divider and button widgets between these, it never
+            # reorders a real Python-backed widget. Nodes 2.0 assigns each
+            # widget's default value positionally against this declaration
+            # order, so splicing an actual schema widget to a new spot in
+            # node.widgets desyncs that assignment and corrupts values on
+            # unrelated widgets (confirmed live: moving wait_for_click and
+            # notify_toast left custom_sound_path holding a stray boolean).
             inputs=[
                 io.Float.Input("fixed_delay_seconds", default=30.0, min=0.0, max=3600.0, step=1.0),
                 io.Boolean.Input("wait_for_temp", default=True),
                 io.Float.Input("target_temp_c", default=65.0, min=30.0, max=100.0, step=1.0),
                 io.Float.Input("poll_interval_seconds", default=5.0, min=1.0, max=60.0, step=1.0),
                 io.Float.Input("max_wait_seconds", default=300.0, min=0.0, max=3600.0, step=10.0),
-                io.Boolean.Input("unload_models_before_wait", default=False),
-                io.Boolean.Input("wait_for_click", default=False),
+                io.Boolean.Input(
+                    "notify_toast",
+                    default=False,
+                    display_name="notify_popup",
+                    tooltip="Show a small on-screen popup message in ComfyUI when this node finishes waiting.",
+                ),
                 io.Boolean.Input("notify_sound", default=False),
                 io.Combo.Input("notify_sound_choice", options=["Default", "Chime", "Alert", "Custom..."], default="Default"),
-                io.String.Input("custom_sound_path", default="", optional=True),
-                io.Boolean.Input("notify_toast", default=False),
+                # Not optional (despite only mattering when notify_sound_choice
+                # is "Custom..."): io.Schema always sorts optional inputs after
+                # every required one, which would silently kick this to the end
+                # of the widget list regardless of declaration order.
+                io.String.Input("custom_sound_path", default=""),
+                # --- OPTIONS group: the occasional toggles, collapsed by
+                # default in the JS. unload_models/clear_cache act *before* the
+                # wait and wait_for_click *after* it, so this is a grab bag
+                # chronologically — but they share the property that matters
+                # for layout: all three are off by default and rarely touched,
+                # unlike fixed_delay_seconds/wait_for_temp above, which are
+                # what the node exists for and stay permanently visible.
+                io.Boolean.Input(
+                    "unload_models_before_wait",
+                    default=False,
+                    display_name="unload_models",
+                    tooltip="Unload all models from VRAM before waiting. Doesn't free the memory by itself — pair with clear_cache for that.",
+                ),
+                io.Boolean.Input(
+                    "clear_cache_before_wait",
+                    default=False,
+                    display_name="clear_cache",
+                    tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
+                ),
+                io.Boolean.Input("wait_for_click", default=False),
+                # Two independent passthrough lanes (not just one) so a single
+                # pause point can carry e.g. an image and its mask together —
+                # without this, carrying two related streams through one pause
+                # meant two separate cooldown nodes, which wait/cooldown twice
+                # instead of once. AnyType inputs render as sockets only (no
+                # widget), so adding a second one doesn't touch the widget-order
+                # fragility noted above.
                 io.AnyType.Input("passthrough", optional=True),
+                io.AnyType.Input("passthrough_2", optional=True),
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
                 io.String.Output("status"),
+                # Must stay last: ComfyUI links an output by positional index,
+                # not name, so anything declared after this would have its
+                # index shift if passthrough_2 were ever removed/reordered —
+                # see spec §32 for why that matters (a reverted attempt at
+                # hiding this socket dynamically broke exactly this way).
+                io.AnyType.Output("passthrough_2"),
             ],
+            hidden=[io.Hidden.unique_id],
             is_output_node=True,
         )
 
     @classmethod
     def execute(cls, **kwargs):
+        import gc
+
         import comfy.model_management as model_management
         from server import PromptServer
+
+        def _clear_cache():
+            gc.collect()
+            model_management.soft_empty_cache()
 
         status = run_cooldown(
             fixed_delay_seconds=kwargs["fixed_delay_seconds"],
@@ -108,28 +176,49 @@ class SmartCooldownNode(_NodeBase):
             poll_interval_seconds=kwargs["poll_interval_seconds"],
             max_wait_seconds=kwargs["max_wait_seconds"],
             unload_models_before_wait=kwargs["unload_models_before_wait"],
+            clear_cache_before_wait=kwargs["clear_cache_before_wait"],
             sleep_fn=__import__("time").sleep,
             metrics_fn=poll_gpu_metrics,
             unload_fn=model_management.unload_all_models,
+            cache_fn=_clear_cache,
         )
 
         notify_sound = kwargs["notify_sound"]
         notify_toast = kwargs["notify_toast"]
+        sound_choice = kwargs["notify_sound_choice"]
+        custom_sound_path = kwargs.get("custom_sound_path", "")
+
+        # Resolve the custom sound here rather than letting the browser discover
+        # it's unplayable: a failed <audio> load falls back to the default tone
+        # silently, which is indistinguishable from the custom sound working.
+        # Downgrading to "Default" up front makes the fallback deliberate and
+        # lets the node say why in its status output (§8 promised this warning).
+        if notify_sound and sound_choice == "Custom...":
+            from ..sound_library import resolve as resolve_custom_sound
+
+            if resolve_custom_sound(custom_sound_path) is None:
+                detail = custom_sound_path or "no file picked"
+                status += f" | Custom sound unavailable ({detail}) — played the default tone instead."
+                sound_choice = "Default"
+                custom_sound_path = ""
+
         if notify_sound or notify_toast:
             PromptServer.instance.send_sync("smart_queue.cooldown_notify", {
                 "notify_sound": notify_sound,
-                "notify_sound_choice": kwargs["notify_sound_choice"],
-                "custom_sound_path": kwargs.get("custom_sound_path", ""),
+                "notify_sound_choice": sound_choice,
+                "custom_sound_path": custom_sound_path,
                 "notify_toast": notify_toast,
                 "status": status,
             })
 
         if kwargs["wait_for_click"]:
             prompt_id = PromptServer.instance.last_prompt_id
+            node_id = cls.hidden.unique_id
             PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
                 "prompt_id": prompt_id,
+                "node_id": node_id,
             })
-            wait_for_continue(prompt_id)
+            wait_for_continue(prompt_id, node_id=node_id)
             status += " | Continued by user click."
 
-        return io.NodeOutput(kwargs.get("passthrough"), status)
+        return io.NodeOutput(kwargs.get("passthrough"), status, kwargs.get("passthrough_2"))

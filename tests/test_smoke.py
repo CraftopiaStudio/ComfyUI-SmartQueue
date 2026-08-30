@@ -2,6 +2,7 @@
 
 import importlib.util
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -28,12 +29,38 @@ def test_init_exposes_node_mappings():
     assert isinstance(module.NODE_DISPLAY_NAME_MAPPINGS, dict)
 
 
-def test_cooldown_node_registered_under_backward_compatible_id():
+def test_cooldown_node_registered_with_display_name():
     module = _load_init_module()
-    assert "RubzGpuCooldownNode" in module.NODE_CLASS_MAPPINGS
-    assert module.NODE_DISPLAY_NAME_MAPPINGS["RubzGpuCooldownNode"] == "Smart Cooldown & Pause"
+    assert "SmartCooldownNode" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["SmartCooldownNode"] == "Smart Cooldown & Pause"
 
 
 def test_web_directory_is_declared():
     module = _load_init_module()
     assert module.WEB_DIRECTORY == "./web"
+
+
+def test_history_cleanup_runs_immediately_when_never_run_before():
+    module = _load_init_module()
+    now = datetime.now(timezone.utc)
+    assert module._should_run_history_cleanup(now, None, retention_days=30) is True
+
+
+def test_history_cleanup_is_throttled_within_the_hour():
+    module = _load_init_module()
+    now = datetime.now(timezone.utc)
+    last_cleanup = now - timedelta(minutes=30)
+    assert module._should_run_history_cleanup(now, last_cleanup, retention_days=30) is False
+
+
+def test_history_cleanup_runs_again_after_an_hour():
+    module = _load_init_module()
+    now = datetime.now(timezone.utc)
+    last_cleanup = now - timedelta(hours=1, seconds=1)
+    assert module._should_run_history_cleanup(now, last_cleanup, retention_days=30) is True
+
+
+def test_history_cleanup_never_runs_when_retention_is_disabled():
+    module = _load_init_module()
+    now = datetime.now(timezone.utc)
+    assert module._should_run_history_cleanup(now, None, retention_days=0) is False

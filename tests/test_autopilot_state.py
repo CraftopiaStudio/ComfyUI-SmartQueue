@@ -67,3 +67,53 @@ def test_manual_resume_clears_manual_paused_but_not_autopilot():
     state.set_manual_pause(False)
     assert state.manual_paused is False
     assert state.effective_paused is True  # autopilot still says pause
+
+
+def test_consume_effective_pause_transition_is_none_when_never_paused():
+    state = AutopilotState()
+    assert state.consume_effective_pause_transition() is None
+
+
+def test_consume_effective_pause_transition_reports_held_once():
+    state = AutopilotState()
+    state.set_manual_pause(True)
+    assert state.consume_effective_pause_transition() == "held"
+    # Same pause still in effect on a later tick — not a new transition.
+    assert state.consume_effective_pause_transition() is None
+
+
+def test_consume_effective_pause_transition_reports_released_once():
+    state = AutopilotState()
+    state.set_manual_pause(True)
+    state.consume_effective_pause_transition()
+    state.set_manual_pause(False)
+    assert state.consume_effective_pause_transition() == "released"
+    assert state.consume_effective_pause_transition() is None
+
+
+def test_consume_effective_pause_transition_covers_autopilot_too():
+    state = AutopilotState()
+    state.apply(Decision(should_pause=True, reasons=("too hot",)))
+    assert state.consume_effective_pause_transition() == "held"
+    state.apply(Decision(should_pause=False, reasons=()))
+    assert state.consume_effective_pause_transition() == "released"
+
+
+def test_consume_effective_pause_transition_does_not_double_fire_when_both_sources_overlap():
+    # Manual pause engages first, then autopilot also wants to pause while
+    # manual is still on — effective_paused was already True, so this must
+    # not report a second "held". Symmetric on the way down: autopilot
+    # resuming first must not report "released" while manual pause still
+    # holds effective_paused True.
+    state = AutopilotState()
+    state.set_manual_pause(True)
+    assert state.consume_effective_pause_transition() == "held"
+
+    state.apply(Decision(should_pause=True, reasons=("too hot",)))
+    assert state.consume_effective_pause_transition() is None
+
+    state.apply(Decision(should_pause=False, reasons=()))
+    assert state.consume_effective_pause_transition() is None  # manual still holds it
+
+    state.set_manual_pause(False)
+    assert state.consume_effective_pause_transition() == "released"

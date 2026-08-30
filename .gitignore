@@ -7,3 +7,6 @@ node_modules/
 .DS_Store
 *.sqlite3
 .pytest_cache/
+
+# User-picked notification sounds, copied in by backend/sound_library.py
+web/sounds/custom/

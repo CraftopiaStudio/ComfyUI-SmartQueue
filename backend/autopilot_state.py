@@ -1,6 +1,7 @@
 """In-memory autopilot state, mutated by the polling loop and read by the middleware."""
 
 from .autopilot import Decision
+from .gpu_monitor import GpuMetrics
 
 
 class AutopilotState:
@@ -9,6 +10,22 @@ class AutopilotState:
         self.jobs_since_resume: int = 0
         self.last_reasons: tuple[str, ...] = ()
         self.manual_paused: bool = False
+        self.last_metrics: GpuMetrics | None = None
+        # Monotonic timestamp the job-count break began, or None outside one.
+        # The clock itself lives in autopilot_loop (this class stays I/O-free).
+        self.break_started_at: float | None = None
+        # Tracks the last value consume_effective_pause_transition() reported,
+        # so either pause source (manual click or an autopilot tick) can share
+        # one edge-trigger on the combined effective_paused instead of each
+        # tracking its own was_paused/now_paused independently — two
+        # independent trackers would double-hold or release too early
+        # whenever both sources are active at once (spec §26.2).
+        self._last_effective_paused: bool = False
+        # One-shot guard for maybe_free_vram_on_pause (spec §29 #27): set the
+        # moment VRAM has been freed for the current pause period, reset the
+        # moment effective_paused goes back to False, so it fires exactly
+        # once per pause rather than every tick.
+        self.vram_freed_for_pause: bool = False
 
     def apply(self, decision: Decision) -> None:
         was_paused = self.is_paused
@@ -17,8 +34,25 @@ class AutopilotState:
         if was_paused and not self.is_paused:
             self.jobs_since_resume = 0
 
+    def record_metrics(self, metrics: GpuMetrics) -> None:
+        self.last_metrics = metrics
+
     def record_job_started(self) -> None:
         self.jobs_since_resume += 1
+
+    def start_break(self, now: float) -> None:
+        self.break_started_at = now
+
+    def end_break(self) -> None:
+        """Ends the job-count break by clearing the counter that triggered it.
+
+        Resetting jobs_since_resume here (rather than in apply()) is what makes
+        the pause releasable at all: apply() only zeroes it on a paused->
+        unpaused transition, which the job-count rule can never reach on its
+        own — it keeps firing off the very counter that transition was meant
+        to clear, so the queue stayed paused forever."""
+        self.break_started_at = None
+        self.jobs_since_resume = 0
 
     def set_manual_pause(self, paused: bool) -> None:
         self.manual_paused = paused
@@ -34,3 +68,15 @@ class AutopilotState:
         if self.manual_paused:
             reasons = ("Manually paused",) + reasons
         return reasons
+
+    def consume_effective_pause_transition(self) -> str | None:
+        """Call after any change to is_paused or manual_paused. Returns
+        "held" the first time effective_paused becomes True, "released" the
+        first time it becomes False again, or None if it's unchanged since
+        the last call — including while it stays True/False across a change
+        in *which* source (manual vs. autopilot) is responsible."""
+        now = self.effective_paused
+        if now == self._last_effective_paused:
+            return None
+        self._last_effective_paused = now
+        return "held" if now else "released"
