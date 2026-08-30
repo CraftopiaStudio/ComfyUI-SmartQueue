@@ -14,6 +14,7 @@ except ImportError:
 from .backend.autopilot import AutopilotSettings
 from .backend.autopilot_loop import run_autopilot_tick
 from .backend.autopilot_state import AutopilotState
+from .backend.api_compat import verify_prompt_queue_shape
 from .backend.db_location import resolve_db_path
 from .backend.gpu_monitor import poll_gpu_metrics
 from .backend.nodes.cooldown import SmartCooldownNode
@@ -152,6 +153,7 @@ if _HAS_COMFY_SERVER:
     _conn = init_db(_db_path)
 
     _server = PromptServer.instance
+    verify_prompt_queue_shape(_server.prompt_queue)
 
     # held_items is only ever non-empty while a manual pause is in effect (it's
     # cleared on every release) — so finding rows here means the previous
