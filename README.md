@@ -4,6 +4,14 @@ GPU-aware queue autopilot for ComfyUI, plus a **Smart Cooldown & Pause** node �
 
 ComfyUI removed its native pause button and has no built-in way to gate the queue on live GPU state. Smart Queue fills that gap: it watches your GPU (temperature, VRAM headroom, job count) and automatically pauses/resumes the queue, on top of a full persistent queue/history panel with drag-reorder, rename, search, and bulk actions.
 
+## Use Cases
+
+- **Unattended overnight batch renders** — queue 100 jobs and leave it alone. Smart Queue will auto-pause when your GPU hits 75°C (or whatever you set), resume once it cools to 65°C, and keep rendering without you watching.
+- **Prevent thermal throttling** — if your GPU throttles after 30 minutes of back-to-back rendering, use the "job count" autopilot rule to pause for 2 minutes after every 5 jobs. The queue picks back up on its own.
+- **Shared GPU hardware** — run ComfyUI on a workstation that also does other work. Set a VRAM threshold; if someone launches a game or another app and VRAM drops below your limit, the queue auto-pauses instead of crashing the job or competing for memory.
+- **Approval workflows** — drop the Cooldown node with `wait_for_click: on` into your graph. Every render stops and waits for you to hit **▶ Continue** before it saves — great for reviewing outputs step-by-step or gating multi-step pipelines.
+- **Queue management without tabs** — persistent history with thumbnails, searchable job names, drag-to-reorder, and multi-select right-click context menus. Rename a job mid-queue, move it to the front, or cancel a batch without leaving ComfyUI.
+
 ## Features
 
 - **Autopilot** — three independent, opt-in rules that pause the queue when your GPU gets too hot, VRAM gets too tight, or too many jobs have run back-to-back. Each has hysteresis (a resume threshold below the pause threshold) so it never flaps. Never interrupts a job that's already running — it only holds back what hasn't started yet.
