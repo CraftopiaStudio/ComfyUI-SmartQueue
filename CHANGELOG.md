@@ -3,6 +3,11 @@
 All notable changes to Smart Queue are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] - 2026-08-30
+
+### Fixed
+- Package name changed from `comfyui-smartqueue` to `ComfyUI-SmartQueue` to match registry naming convention (required deleting and re-registering the node, since the node ID is locked after first publish).
+
 ## [0.1.1] - 2026-08-30
 
 ### Fixed
