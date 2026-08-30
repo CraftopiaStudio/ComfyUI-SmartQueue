@@ -96,6 +96,16 @@ class SmartCooldownNode(_NodeBase):
             # unrelated widgets (confirmed live: moving wait_for_click and
             # notify_toast left custom_sound_path holding a stray boolean).
             inputs=[
+                # Two independent passthrough lanes (not just one) so a single
+                # pause point can carry e.g. an image and its mask together —
+                # without this, carrying two related streams through one pause
+                # meant two separate cooldown nodes, which wait/cooldown twice
+                # instead of once. AnyType inputs render as sockets only (no
+                # widget), so adding a second one doesn't touch the widget-order
+                # fragility noted above. Declared first so sockets appear at the
+                # top of the node, before the parameter widgets.
+                io.AnyType.Input("passthrough", optional=True),
+                io.AnyType.Input("passthrough_2", optional=True),
                 io.Float.Input("fixed_delay_seconds", default=30.0, min=0.0, max=3600.0, step=1.0),
                 io.Boolean.Input("wait_for_temp", default=True),
                 io.Float.Input("target_temp_c", default=65.0, min=30.0, max=100.0, step=1.0),
@@ -134,15 +144,6 @@ class SmartCooldownNode(_NodeBase):
                     tooltip="Actually reclaim VRAM back to the OS/driver before waiting (gc.collect() + torch's CUDA cache empty) — this is the step that makes nvidia-smi/Task Manager usage drop.",
                 ),
                 io.Boolean.Input("wait_for_click", default=False),
-                # Two independent passthrough lanes (not just one) so a single
-                # pause point can carry e.g. an image and its mask together —
-                # without this, carrying two related streams through one pause
-                # meant two separate cooldown nodes, which wait/cooldown twice
-                # instead of once. AnyType inputs render as sockets only (no
-                # widget), so adding a second one doesn't touch the widget-order
-                # fragility noted above.
-                io.AnyType.Input("passthrough", optional=True),
-                io.AnyType.Input("passthrough_2", optional=True),
             ],
             outputs=[
                 io.AnyType.Output("passthrough"),
