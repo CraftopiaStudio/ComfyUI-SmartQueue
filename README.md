@@ -4,6 +4,8 @@ GPU-aware queue autopilot for ComfyUI, plus a **Smart Cooldown & Pause** node: f
 
 ComfyUI removed its native pause button and has no built-in way to gate the queue on live GPU state. Smart Queue fills that gap: it watches your GPU (temperature, VRAM headroom, job count) and automatically pauses/resumes the queue, on top of a full persistent queue/history panel with drag-reorder, rename, search, and bulk actions.
 
+> **GPU support:** temperature- and VRAM-based autopilot need an NVIDIA GPU (`nvidia-smi`). The manual pause button, the queue/history panel, drag-reorder, and the job-count autopilot rule all work on any GPU (or CPU-only) — see [Compatibility & known limitations](#compatibility--known-limitations) for the full breakdown.
+
 ## Use Cases
 
 - **Unattended overnight batch renders**: queue 100 jobs and leave it alone. Smart Queue will auto-pause when your GPU hits 75°C (or whatever you set), resume once it cools to 65°C, and keep rendering without you watching.
@@ -78,7 +80,7 @@ The node's OPTIONS and NOTIFICATIONS sections are collapsible, so the node stays
 
 Under **Settings → Smart Queue**, grouped into sections:
 
-1. **Autopilot**: master on/off for GPU polling itself.
+1. **Autopilot**: master on/off. Turning this off is a true node-only mode: the sidebar panel and toolbar pause button are removed entirely (not just hidden), and all background queue tracking stops — only the Smart Cooldown & Pause node keeps working. Flip it back on here and everything returns within ~10 seconds, no restart needed.
 2. **Temperature**: pause above N °C, resume below a lower threshold (hysteresis).
 3. **VRAM**: pause when free VRAM drops under a threshold.
 4. **Job count**: pause for a configurable cooldown break after N jobs have run back-to-back.
@@ -111,7 +113,7 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 
 ## Testing
 
-210 unit tests cover the autopilot rule engine, persistence, queue-hold logic, and routes as pure functions with no GPU or running ComfyUI instance required:
+212 unit tests cover the autopilot rule engine, persistence, queue-hold logic, routes, and the Smart Cooldown node's frozen widget/socket order, as pure functions with no GPU or running ComfyUI instance required:
 
 ```bash
 pytest tests/ -q -p no:warnings

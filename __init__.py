@@ -121,12 +121,22 @@ async def _autopilot_background_loop(conn):
             _maybe_free_vram_on_pause_tick()
         except Exception:
             logger.warning("Smart Queue: free-VRAM-on-pause check failed, skipping this tick", exc_info=True)
-        try:
-            # Sync sqlite3 connections are bound to the thread that created them
-            # (this loop's thread), so this must run inline, not via asyncio.to_thread.
-            _sync_queue_tracker_tick(conn)
-        except Exception:
-            logger.warning("Smart Queue: queue tracker sync failed, skipping this tick", exc_info=True)
+        if _autopilot_settings.master_enabled:
+            # Gated on master_enabled (unlike sync_queue_hold/free-vram above,
+            # which always run as a safety net so a held job can never get
+            # stuck forever): this writes the full running/queued/history
+            # state to SQLite every tick purely to feed the sidebar panel,
+            # and the panel's own JS never even builds its DOM when autopilot
+            # is off (web/smart_queue.js — setup() returns before rendering
+            # anything). Skipping it turns "autopilot off" into an actual
+            # node-only mode instead of a UI-only illusion: no panel, and no
+            # silent background writes for a panel nobody can see.
+            try:
+                # Sync sqlite3 connections are bound to the thread that created them
+                # (this loop's thread), so this must run inline, not via asyncio.to_thread.
+                _sync_queue_tracker_tick(conn)
+            except Exception:
+                logger.warning("Smart Queue: queue tracker sync failed, skipping this tick", exc_info=True)
         now = datetime.now(timezone.utc)
         if _should_run_history_cleanup(now, _last_history_cleanup, _autopilot_settings.history_retention_days):
             try:

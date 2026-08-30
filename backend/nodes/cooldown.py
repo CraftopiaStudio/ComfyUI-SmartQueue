@@ -1,5 +1,6 @@
 """Smart Cooldown & Pause node (V3 schema)."""
 
+import time
 from typing import Callable
 
 try:
@@ -182,7 +183,7 @@ class SmartCooldownNode(_NodeBase):
             max_wait_seconds=kwargs["max_wait_seconds"],
             unload_models_before_wait=kwargs["unload_models_before_wait"],
             clear_cache_before_wait=kwargs["clear_cache_before_wait"],
-            sleep_fn=__import__("time").sleep,
+            sleep_fn=time.sleep,
             metrics_fn=poll_gpu_metrics,
             unload_fn=model_management.unload_all_models,
             cache_fn=_clear_cache,

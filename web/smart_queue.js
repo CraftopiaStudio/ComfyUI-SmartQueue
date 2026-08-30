@@ -7,6 +7,7 @@ app.registerExtension({
         {
             id: "SmartQueue.EnableAutopilot",
             name: "Turn on autopilot (GPU monitoring and pause rules)",
+            tooltip: "Off removes the sidebar panel and toolbar pause button entirely (not just hides them) and stops all background queue tracking — only the Smart Cooldown & Pause node keeps working. Re-enabling here brings everything back within about 10 seconds, no restart needed.",
             type: "boolean",
             defaultValue: true,
             category: ["SmartQueue", "1. Autopilot", "Turn on autopilot (GPU monitoring and pause rules)"],

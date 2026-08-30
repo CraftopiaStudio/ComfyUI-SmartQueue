@@ -1,7 +1,7 @@
 [project]
 name = "ComfyUI-SmartQueue"
-description = "GPU-aware queue autopilot plus a cooldown/pause/notify node for ComfyUI"
-version = "0.1.3"
+description = "GPU-aware queue autopilot (NVIDIA) plus a cross-GPU pause/cooldown/notify node for ComfyUI"
+version = "0.1.4"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

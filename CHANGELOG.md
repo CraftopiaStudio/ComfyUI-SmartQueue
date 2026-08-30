@@ -3,7 +3,19 @@
 All notable changes to Smart Queue are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.3] - 2026-08-30
+## [0.1.4] - 2026-08-31
+
+### Added
+- Test that pins `SmartCooldownNode`'s widget declaration order and output socket order (parses `define_schema()` via `ast` since `comfy_api` isn't importable under pytest) — turns the "FROZEN ORDER, do not reorder" code comments into an enforced check instead of a comment someone could miss.
+- Tooltip on the "Turn on autopilot" setting explaining that turning it off removes the sidebar panel/pause button entirely and stops all background queue tracking, not just hides them.
+
+### Changed
+- Turning autopilot off is now a true node-only mode: the background loop skips its per-5-second SQLite queue-tracking write (previously ran unconditionally even with the panel hidden and nothing reading it). Manual-pause release logic keeps running unconditionally as a safety net so a held job from before the toggle flip can't get stuck.
+- `pyproject.toml` description and README clarify which features are NVIDIA-only (temperature/VRAM autopilot) versus GPU-agnostic (manual pause, panel, job-count autopilot) — moved out of the buried "Compatibility" section into a callout near the top.
+- Replaced `__import__("time").sleep` with a normal `import time` in `backend/nodes/cooldown.py` — functionally identical, but `__import__(...)` is a pattern registry security scanners flag, and removing it is a no-cost step in narrowing down why 0.1.2/0.1.3 came back `NodeVersionStatusFlagged` on the registry.
+
+### Fixed
+- README test count updated to 212 (210 backend + 2 new schema-order tests).
 
 ### Fixed
 - Registry `DisplayName` set to `ComfyUI-SmartQueue` (was `Smart Queue`) so the registry listing title/subtitle match the naming convention used by ComfyUI-CraftKit and ComfyUI-WorkflowOrganizer.
