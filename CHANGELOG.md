@@ -3,6 +3,11 @@
 All notable changes to Smart Queue are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- History sidebar thumbnails were silently blank for video outputs (e.g. `SaveVideo`'s `.mp4`) — `refreshHistory` always rendered an `<img>`, which browsers can't use to preview a video file. Now renders a `<video muted loop>` for video filenames and `<img>` for everything else, matching ComfyUI's own native queue panel.
+
 ## [0.1.4] - 2026-08-31
 
 ### Added

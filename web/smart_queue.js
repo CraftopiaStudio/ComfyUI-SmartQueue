@@ -735,12 +735,20 @@ app.registerExtension({
                     }
                 }
 
+                let lastHistorySignature = null;
                 async function refreshHistory() {
                     try {
                         const q = panel.querySelector("#smart-queue-history-search").value.trim();
                         const url = q ? `/smart_queue/history?name=${encodeURIComponent(q)}` : "/smart_queue/history";
                         const res = await fetch(url);
                         const data = await res.json();
+                        // Rebuilding the list re-creates every <video> thumb from
+                        // scratch, which restarts its frame load and shows up as
+                        // a flicker every poll — skip the rebuild when nothing
+                        // actually changed since the last fetch.
+                        const signature = JSON.stringify(data.items);
+                        if (signature === lastHistorySignature) return;
+                        lastHistorySignature = signature;
                         const listEl = panel.querySelector("#smart-queue-history");
                         listEl.innerHTML = "";
                         if (data.items.length === 0) {
@@ -748,16 +756,52 @@ app.registerExtension({
                         }
                         for (const item of data.items) {
                             const li = document.createElement("li");
+                            if (item.workflow_json) {
+                                li.addEventListener("contextmenu", (e) => {
+                                    removeContextMenu();
+                                    e.preventDefault();
+                                    const menu = document.createElement("div");
+                                    menu.className = "smart-queue-context-menu";
+                                    menu.appendChild(makeContextItem("Load workflow", () => {
+                                        removeContextMenu();
+                                        restoreWorkflowFromHistory(item);
+                                    }));
+                                    document.body.appendChild(menu);
+                                    menu.style.left = e.clientX + "px";
+                                    menu.style.top = e.clientY + "px";
+                                    contextMenuEl = menu;
+                                    const closeHandler = (ev) => {
+                                        if (menu.contains(ev.target)) return;
+                                        removeContextMenu();
+                                        document.removeEventListener("mousedown", closeHandler);
+                                    };
+                                    setTimeout(() => document.addEventListener("mousedown", closeHandler), 0);
+                                });
+                            }
                             if (item.thumbnail_path) {
-                                const img = document.createElement("img");
-                                img.className = "smart-queue-thumb";
-                                img.src = `/view?${item.thumbnail_path}`;
-                                img.loading = "lazy";
-                                img.title = item.workflow_json ? "Click to restore this workflow" : "";
-                                if (item.workflow_json) {
-                                    img.addEventListener("click", () => restoreWorkflowFromHistory(item));
+                                // <img> silently renders nothing for a video
+                                // filename (SaveVideo outputs land in the same
+                                // "images" history key as SaveImage, just with
+                                // a .mp4/.webm name) — a <video> element is
+                                // needed to get a frame preview out of it.
+                                const filename = new URLSearchParams(item.thumbnail_path).get("filename") || "";
+                                const isVideo = /\.(mp4|webm|mov|mkv|avi)$/i.test(filename);
+                                const media = document.createElement(isVideo ? "video" : "img");
+                                media.className = "smart-queue-thumb";
+                                media.src = `/view?${item.thumbnail_path}`;
+                                if (isVideo) {
+                                    media.muted = true;
+                                    media.loop = true;
+                                    media.playsInline = true;
+                                    media.preload = "metadata";
+                                } else {
+                                    media.loading = "lazy";
                                 }
-                                li.appendChild(img);
+                                media.title = item.workflow_json ? "Click to restore this workflow" : "";
+                                if (item.workflow_json) {
+                                    media.addEventListener("click", () => restoreWorkflowFromHistory(item));
+                                }
+                                li.appendChild(media);
                             }
                             const nameEl = document.createElement("span");
                             nameEl.className = "smart-queue-history-name";

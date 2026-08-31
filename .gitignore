@@ -18,3 +18,8 @@ docs/superpowers/
 
 # Local Claude Code session/config data — never intended for the repo
 .claude/
+
+# Local dev-only tooling, not part of the published node package
+check_registry_status.bat
+check_registry_status_readable.ps1
+registry_status_last.txt
