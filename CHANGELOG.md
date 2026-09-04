@@ -5,7 +5,10 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-04
+
 ### Fixed
+- Pending rows in the sidebar panel could survive forever, even across a page refresh, once their job was removed from ComfyUI's live queue by anything other than Smart Queue's own Cancel button — most commonly ComfyUI's native "Clear Queue" button, which bypasses `/smart_queue/cancel` entirely. `queue_tracker`'s sync tick now prunes any pending row whose prompt_id is no longer in the live running/queued lists and never reached history, since that only happens when it was cleared or cancelled out from under Smart Queue. Held rows (manual pause) are exempt, since they're deliberately outside the live queue.
 - History sidebar thumbnails were silently blank for video outputs (e.g. `SaveVideo`'s `.mp4`) — `refreshHistory` always rendered an `<img>`, which browsers can't use to preview a video file. Now renders a `<video muted loop>` for video filenames and `<img>` for everything else, matching ComfyUI's own native queue panel.
 
 ## [0.1.4] - 2026-08-31

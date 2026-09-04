@@ -13,7 +13,13 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from .autopilot_state import AutopilotState
-from .persistence import add_queue_item, list_queue_items, mark_completed, mark_queue_item_started
+from .persistence import (
+    add_queue_item,
+    list_queue_items,
+    mark_completed,
+    mark_queue_item_started,
+    remove_queue_item,
+)
 
 
 def extract_job_name(extra_data: dict) -> str:
@@ -125,6 +131,20 @@ def sync_queue_tracker(
             workflow_json=extract_workflow_json(extra_data),
         )
         seen_completed = seen_completed | {prompt_id}
+
+    # A pending row whose prompt_id is in none of running/queued/history was
+    # removed from ComfyUI's live queue without ever executing — e.g. the
+    # native "Clear Queue" button, which bypasses /smart_queue/cancel and so
+    # never calls remove_queue_item itself. Without this, that row has no
+    # other way to ever leave queue_items and sits in the panel's PENDING
+    # list forever, surviving even a page refresh. A "held" row is exempt:
+    # manual pause deliberately holds it outside ComfyUI's live queue (see
+    # queue_hold_sync.py), so its absence from running/queued is expected,
+    # not a sign it was cleared.
+    live_ids = {item[1] for item in running} | {item[1] for item in queued} | set(history.keys())
+    for row in list_queue_items(conn):
+        if row["status"] != "held" and row["prompt_id"] not in live_ids:
+            remove_queue_item(conn, prompt_id=row["prompt_id"])
 
     # Bound both sets to what ComfyUI can still show us, instead of growing
     # for the process lifetime (spec §26.2). A ended job is safe to forget

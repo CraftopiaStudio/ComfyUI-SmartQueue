@@ -113,7 +113,7 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 
 ## Testing
 
-212 unit tests cover the autopilot rule engine, persistence, queue-hold logic, routes, and the Smart Cooldown node's frozen widget/socket order, as pure functions with no GPU or running ComfyUI instance required:
+214 unit tests cover the autopilot rule engine, persistence, queue-hold logic, routes, and the Smart Cooldown node's frozen widget/socket order, as pure functions with no GPU or running ComfyUI instance required:
 
 ```bash
 pytest tests/ -q -p no:warnings

@@ -1,5 +1,5 @@
 from backend.autopilot_state import AutopilotState
-from backend.persistence import init_db, list_history, list_queue_items
+from backend.persistence import add_queue_item, init_db, list_history, list_queue_items, set_queue_item_status
 from backend.queue_tracker import (
     extract_job_name,
     extract_thumbnail_query,
@@ -212,6 +212,38 @@ def test_sync_prunes_seen_sets_to_what_comfyui_still_shows(tmp_path):
         conn, [], [], history={}, autopilot_state=state, seen_running=seen_running, seen_completed=seen_completed,
     )
     assert seen_completed == set()
+
+
+def test_sync_prunes_pending_item_cleared_from_live_queue_without_history(tmp_path):
+    """A pending row must not survive forever when its job is removed from
+    ComfyUI's live queue by something other than /smart_queue/cancel — e.g.
+    the native "Clear Queue" button, which never runs the job and so never
+    puts it in history either."""
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    queued = [make_item("a"), make_item("b")]
+
+    sync_queue_tracker(conn, [], queued, history={}, autopilot_state=state, seen_running=set(), seen_completed=set())
+    assert {item["prompt_id"] for item in list_queue_items(conn)} == {"a", "b"}
+
+    # "a" gets cleared from ComfyUI's live queue; "b" stays queued.
+    sync_queue_tracker(conn, [], [queued[1]], history={}, autopilot_state=state, seen_running=set(), seen_completed=set())
+
+    assert {item["prompt_id"] for item in list_queue_items(conn)} == {"b"}
+
+
+def test_sync_does_not_prune_held_items(tmp_path):
+    """A "held" row is deliberately outside ComfyUI's live queue during a
+    manual pause (see queue_hold_sync.py) — its absence from running/queued
+    must not be mistaken for it having been cleared."""
+    conn = init_db(str(tmp_path / "test.sqlite3"))
+    state = AutopilotState()
+    add_queue_item(conn, prompt_id="a", name="Held Job")
+    set_queue_item_status(conn, prompt_id="a", status="held")
+
+    sync_queue_tracker(conn, [], [], history={}, autopilot_state=state, seen_running=set(), seen_completed=set())
+
+    assert {item["prompt_id"] for item in list_queue_items(conn)} == {"a"}
 
 
 def test_sync_does_not_reprocess_already_completed_history_entries(tmp_path):
