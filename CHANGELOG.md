@@ -5,6 +5,12 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- "Show in Explorer" on the history panel's right-click menu: resolves the row's stored thumbnail path back to the real output file (mirroring ComfyUI's own `/view` resolution) and opens it selected in the OS file manager. Windows also force-brings the Explorer window to the foreground, since a background process is normally blocked from stealing focus (`SetForegroundWindow`'s "foreground lock") — worked around with a synthetic Alt keypress plus matching the window by its actual folder path via `Shell.Application`, not by guessing from window title text.
+
+### Fixed
+- On Windows, revealing a file whose path contained spaces could pop a second, unselected Explorer window alongside the real one: the `/select,<path>` argument was passed as a list element, which Python's own command-line quoting wraps in an extra outer pair of quotes that Explorer parses inconsistently. Now passed as a single raw command-line string so only the path itself is quoted, matching Explorer's documented syntax.
+
 ## [0.1.5] - 2026-09-04
 
 ### Fixed

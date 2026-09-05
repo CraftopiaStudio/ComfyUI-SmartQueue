@@ -735,6 +735,26 @@ app.registerExtension({
                     }
                 }
 
+                async function revealInExplorer(item) {
+                    try {
+                        const res = await fetch("/smart_queue/reveal_in_explorer", {
+                            method: "POST",
+                            body: JSON.stringify({ thumbnail_path: item.thumbnail_path }),
+                            headers: { "Content-Type": "application/json" },
+                        });
+                        const data = await res.json();
+                        if (!data.ok && app.extensionManager?.toast) {
+                            app.extensionManager.toast.add({
+                                severity: "error",
+                                summary: "Couldn't open file manager",
+                                detail: data.error || "Unknown error.",
+                            });
+                        }
+                    } catch (err) {
+                        console.error("[Smart Queue] reveal in explorer failed:", err);
+                    }
+                }
+
                 let lastHistorySignature = null;
                 async function refreshHistory() {
                     try {
@@ -756,16 +776,24 @@ app.registerExtension({
                         }
                         for (const item of data.items) {
                             const li = document.createElement("li");
-                            if (item.workflow_json) {
+                            if (item.workflow_json || item.thumbnail_path) {
                                 li.addEventListener("contextmenu", (e) => {
                                     removeContextMenu();
                                     e.preventDefault();
                                     const menu = document.createElement("div");
                                     menu.className = "smart-queue-context-menu";
-                                    menu.appendChild(makeContextItem("Load workflow", () => {
-                                        removeContextMenu();
-                                        restoreWorkflowFromHistory(item);
-                                    }));
+                                    if (item.workflow_json) {
+                                        menu.appendChild(makeContextItem("Load workflow", () => {
+                                            removeContextMenu();
+                                            restoreWorkflowFromHistory(item);
+                                        }));
+                                    }
+                                    if (item.thumbnail_path) {
+                                        menu.appendChild(makeContextItem("Show in Explorer", () => {
+                                            removeContextMenu();
+                                            revealInExplorer(item);
+                                        }));
+                                    }
                                     document.body.appendChild(menu);
                                     menu.style.left = e.clientX + "px";
                                     menu.style.top = e.clientY + "px";

@@ -10,6 +10,7 @@ from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
 from .continue_registry import list_pending, signal_cancel, signal_continue
 from .native_dialog import browse_path
+from .reveal_in_explorer import post_reveal_in_explorer
 from .sound_library import import_sound
 from .persistence import (
     list_history,
@@ -219,3 +220,4 @@ def register_routes(
     app.router.add_post("/smart_queue/rename", post_rename)
     app.router.add_post("/smart_queue/cancel", post_cancel)
     app.router.add_post("/smart_queue/browse_sound_file", post_browse_sound_file)
+    app.router.add_post("/smart_queue/reveal_in_explorer", post_reveal_in_explorer)
