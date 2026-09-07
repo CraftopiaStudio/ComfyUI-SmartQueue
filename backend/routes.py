@@ -9,8 +9,6 @@ from aiohttp import web
 from .autopilot import AutopilotSettings
 from .autopilot_state import AutopilotState
 from .continue_registry import list_pending, signal_cancel, signal_continue
-from .native_dialog import browse_path
-from .sound_library import import_sound
 from .persistence import (
     list_history,
     list_queue_items,
@@ -196,16 +194,6 @@ def register_routes(
     async def get_pending_waits(request: web.Request) -> web.Response:
         return web.json_response({"items": list_pending()})
 
-    async def post_browse_sound_file(request: web.Request) -> web.Response:
-        # import_sound copies the pick into web/sounds/custom and returns a
-        # path relative to web/ — the browser cannot load a raw filesystem
-        # path, so handing back the picked path directly never worked.
-        return await browse_path(
-            request,
-            title="Select notification sound",
-            transform=import_sound,
-        )
-
     app.router.add_get("/smart_queue/status", get_status)
     app.router.add_get("/smart_queue/queue", get_queue)
     app.router.add_post("/smart_queue/reorder", post_reorder)
@@ -218,4 +206,3 @@ def register_routes(
     app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
     app.router.add_post("/smart_queue/rename", post_rename)
     app.router.add_post("/smart_queue/cancel", post_cancel)
-    app.router.add_post("/smart_queue/browse_sound_file", post_browse_sound_file)

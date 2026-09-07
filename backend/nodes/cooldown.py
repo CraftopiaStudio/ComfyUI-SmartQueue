@@ -124,7 +124,15 @@ class SmartCooldownNode(_NodeBase):
                 # is "Custom..."): io.Schema always sorts optional inputs after
                 # every required one, which would silently kick this to the end
                 # of the widget list regardless of declaration order.
-                io.String.Input("custom_sound_path", default=""),
+                io.String.Input(
+                    "custom_sound_path",
+                    default="",
+                    tooltip=(
+                        "Put your audio file in the extension's web/sounds/custom/ folder, "
+                        "then type sounds/custom/<filename> here. It has to live under web/ "
+                        "because the browser cannot load a file:// path from an http:// page."
+                    ),
+                ),
                 # --- OPTIONS group: the occasional toggles, collapsed by
                 # default in the JS. unload_models/clear_cache act *before* the
                 # wait and wait_for_click *after* it, so this is a grab bag
@@ -203,7 +211,7 @@ class SmartCooldownNode(_NodeBase):
             from ..sound_library import resolve as resolve_custom_sound
 
             if resolve_custom_sound(custom_sound_path) is None:
-                detail = custom_sound_path or "no file picked"
+                detail = custom_sound_path or "no file set"
                 status += f" | Custom sound unavailable ({detail}) — played the default tone instead."
                 sound_choice = "Default"
                 custom_sound_path = ""

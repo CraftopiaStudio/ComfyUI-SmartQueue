@@ -70,7 +70,7 @@ The node's OPTIONS and NOTIFICATIONS sections are collapsible, so the node stays
 | `poll_interval_seconds` | 5 | How often to re-check the temperature |
 | `max_wait_seconds` | 300 | Safety cap so a stuck GPU reading can't wait forever |
 | `notify_popup` | off | ComfyUI popup when the node finishes waiting |
-| `notify_sound` | off | Plays a short tone (Default / Chime / Alert / a custom sound file you pick) |
+| `notify_sound` | off | Plays a short tone (Default / Chime / Alert, or a custom file you place in `web/sounds/custom/`) |
 | `unload_models` | off | Drops model references from VRAM before waiting |
 | `clear_cache` | off | Actually reclaims that VRAM back to the OS/driver (pairs with `unload_models`: this is the step that moves the needle on `nvidia-smi`) |
 | `wait_for_click` | off | Blocks after the cooldown behind on-node **▶ Continue** / **✕ Cancel** buttons |
@@ -108,7 +108,7 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 
 - **ComfyUI version.** Built and tested against a current (2026) ComfyUI checkout. The autopilot and queue-hold logic read ComfyUI's in-memory `PromptQueue` directly (`get_current_queue_volatile()`, tuple-shaped queue/history entries) because ComfyUI has no stable public API for queue introspection: a future core refactor of that internal shape could break hold/reorder behavior. Smart Queue checks this shape once at startup and logs a specific warning if it no longer matches, instead of failing silently: if autopilot or the sidebar panel stop reflecting the real queue after a ComfyUI update, check the ComfyUI console log for a `[Smart Queue]` warning first.
 - **GPU vendor and selection.** NVIDIA-only (via `nvidia-smi`). On a multi-GPU machine, Smart Queue reads `CUDA_VISIBLE_DEVICES` and polls the first index listed there: set it the same way you'd set it for ComfyUI itself so both agree on which card is "the" GPU. AMD, Intel, and CPU-only installs get `nvidia-smi`-not-found: autopilot's temperature/VRAM rules disable themselves (fail-open) rather than erroring; job-count-based autopilot still works since it doesn't need GPU metrics.
-- **Sound/file picker** uses a native dialog on every platform: Win32 `IFileDialog` COM interop on Windows, `osascript`/AppleScript on macOS, and `zenity` (falling back to `kdialog`) on Linux. On a Linux machine with neither `zenity` nor `kdialog` installed, the picker logs a warning and returns no dialog: install either package, or use one of the built-in default/chime/alert sounds instead.
+- **A custom notification sound is a manual step.** Drop your audio file into the extension's `web/sounds/custom/` folder, then type `sounds/custom/<filename>` into the node's `custom_sound_path` widget. It has to live under `web/` because a page served over http:// is not allowed to load a `file://` subresource, so a raw path from elsewhere on disk can never play. Earlier versions had a Browse button that opened a native file dialog; it was removed because it required an unauthenticated HTTP endpoint that spawns a system process, which security scanners flag. The built-in Default / Chime / Alert sounds need no setup.
 - **The cooldown node blocks its branch of the graph while waiting** (fixed delay, temperature-wait, or the manual continue/cancel gate). That's the intended behavior for a gate node, but it means a workflow shouldn't rely on other work happening on that same branch concurrently while it waits.
 
 ## Testing

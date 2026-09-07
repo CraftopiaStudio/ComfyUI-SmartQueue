@@ -283,29 +283,12 @@ app.registerExtension({
         const notifyToastWidget = byName("notify_toast");
         const waitForClickWidget = byName("wait_for_click");
 
-        let browseBtn = null;
-        if (customSoundPathWidget && notifySoundChoiceWidget) {
-            // Browse button, copied from CraftKit's Smart Batch Resize
-            // (js/smart_batch_resize.js) "📁 Browse folder" pattern.
-            browseBtn = node.addWidget("button", "📁 Browse sound file", null, async () => {
-                try {
-                    const res = await fetch("/smart_queue/browse_sound_file", { method: "POST" });
-                    const data = await res.json();
-                    if (data.ok && data.path) {
-                        customSoundPathWidget.value = data.path;
-                        node.setDirtyCanvas(true);
-                    }
-                } catch (e) {
-                    console.error("[Smart Queue] Browse failed:", e);
-                }
-            }, { serialize: false });
-            browseBtn.serialize = false;
-
-            // Move Browse button to right after custom_sound_path
-            const pathIdx = node.widgets.indexOf(customSoundPathWidget);
-            node.widgets.splice(node.widgets.indexOf(browseBtn), 1);
-            node.widgets.splice(pathIdx + 1, 0, browseBtn);
-        }
+        // There used to be a "📁 Browse sound file" button here, backed by a
+        // native file dialog on the Python side. Removed: it meant an
+        // unauthenticated HTTP route spawning a PowerShell/osascript/zenity
+        // process, which is the shape the Comfy Registry bans under
+        // policy-v0.2. A custom sound is now a manual step — drop the file in
+        // web/sounds/custom/ and type sounds/custom/<name> into the widget.
 
         // Plain default litegraph button — no custom draw/computeSize, copied
         // straight from CraftKit's own "▶ Run Batch" (js/smart_batch_resize.js),
@@ -345,7 +328,6 @@ app.registerExtension({
             notifySoundWidget,
             notifySoundChoiceWidget,
             customSoundPathWidget,
-            browseBtn,
         ].filter(Boolean);
         const waitMembers = [
             byName("unload_models_before_wait"),
@@ -374,7 +356,7 @@ app.registerExtension({
             for (const w of notifyMembers) {
                 let visible = notifyOpen;
                 if (w === notifySoundChoiceWidget) visible = notifyOpen && soundOn;
-                if (w === customSoundPathWidget || w === browseBtn) visible = notifyOpen && customSound;
+                if (w === customSoundPathWidget) visible = notifyOpen && customSound;
                 setWidgetVisible(node, w, visible);
             }
 
