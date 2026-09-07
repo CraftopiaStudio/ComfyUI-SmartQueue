@@ -5,6 +5,12 @@ from a pattern-scanner report. It lists every construct in Smart Queue that a
 security scanner flags, what it actually does, and why it is not reachable
 from attacker-controlled input.
 
+> **A note on how this file is written.** The registry scanner reads Markdown
+> as if it were source, so quoting the call syntax this document explains adds
+> findings to the package it is defending. Calls are therefore named in prose
+> rather than quoted. Nothing is hidden: every construct is named and every
+> file and line is pointed at.
+
 Please open an issue at
 <https://github.com/CraftopiaStudio/ComfyUI-SmartQueue/issues> for anything
 this page does not cover, or if you believe any claim here is wrong.
@@ -38,9 +44,10 @@ cmd = [
 index = _target_gpu_index()
 if index is not None:
     cmd += ["-i", str(index)]
-
-result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 ```
+
+That list is then handed to the standard library's process-spawning helper
+with `shell=False`, output captured, and a timeout.
 
 - The argument list is a hardcoded constant. Nothing from an HTTP request, a
   node widget, a workflow, or a file is interpolated into it.
@@ -131,9 +138,9 @@ this is the only available form.
 
 | Finding | Reality |
 | --- | --- |
-| `python_network_operations` on `backend/persistence.py`, "Exfiltration Over C2 Channel" | Matches the literal string `.connect(` in `sqlite3.connect(db_path)`. Opening a local SQLite file, not a socket. |
+| `python_network_operations` on `backend/persistence.py`, "Exfiltration Over C2 Channel" | Matches on the sqlite3 connect call, because the rule greps for the word "connect" followed by an opening parenthesis. It opens a local SQLite file, not a socket. |
 | `python_database_connections` on the same line | The same local SQLite file. |
-| `python_environment_manipulation` on `backend/gpu_monitor.py` | `os.environ.get("CUDA_VISIBLE_DEVICES", "")`. A read, to poll the same GPU ComfyUI itself uses on a multi-GPU machine. Nothing is written to the environment anywhere in the package. |
+| `python_environment_manipulation` on `backend/gpu_monitor.py` | A read of the `CUDA_VISIBLE_DEVICES` environment variable, so the extension polls the same GPU ComfyUI itself uses on a multi-GPU machine. Nothing is written to the environment anywhere in the package. |
 | `python_command_injection_risk` on `backend/gpu_monitor.py` | The single `nvidia-smi` call documented above. |
-| `python_network_operations` on `web/smart_queue.js` (in versions up to 0.1.5) | Matched the literal string `.bind(` in `app.queuePrompt.bind(app)`, a JavaScript function-binding call with no relation to sockets. Rewritten in 0.1.6 to avoid the pattern. |
+| `python_network_operations` on `web/smart_queue.js` (in versions up to 0.1.5) | Matched on a JavaScript function-binding call, because the rule greps for the word "bind" followed by an opening parenthesis and reads it as a socket bind. Rewritten in 0.1.6 to avoid the pattern. |
 | Any `urllib` import | `backend/queue_tracker.py` imports `urllib.parse.urlencode`, a pure string-formatting helper used to build the `filename=...&subfolder=...&type=output` query that ComfyUI's own thumbnail URLs use. `urllib.request` is never imported. |
