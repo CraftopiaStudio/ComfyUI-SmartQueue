@@ -15,6 +15,7 @@ async def _make_app(state: AutopilotState, enabled: bool = True):
         return web.json_response({"ok": True})
 
     app.router.add_post("/prompt", handle_prompt)
+    app.router.add_post("/api/prompt", handle_prompt)
     return app
 
 
@@ -28,6 +29,11 @@ class TestQueueMiddlewarePassthrough(AioHTTPTestCase):
         resp = await self.client.post("/prompt", json={})
         assert resp.status == 200
 
+    @unittest_run_loop
+    async def test_passes_through_the_api_prefixed_path_when_not_paused(self):
+        resp = await self.client.post("/api/prompt", json={})
+        assert resp.status == 200
+
 
 class TestQueueMiddlewareBlocking(AioHTTPTestCase):
     async def get_application(self):
@@ -38,6 +44,16 @@ class TestQueueMiddlewareBlocking(AioHTTPTestCase):
     @unittest_run_loop
     async def test_blocks_with_423_when_paused(self):
         resp = await self.client.post("/prompt", json={})
+        assert resp.status == 423
+        body = await resp.json()
+        assert "GPU too hot" in body["error"]
+
+    @unittest_run_loop
+    async def test_blocks_the_api_prefixed_path_the_builtin_frontend_uses(self):
+        # ComfyUI duplicates every route under /api (server.py add_routes), and
+        # the bundled frontend's apiURL() only ever calls the prefixed form —
+        # gating the bare path alone let every UI submission straight through.
+        resp = await self.client.post("/api/prompt", json={})
         assert resp.status == 423
         body = await resp.json()
         assert "GPU too hot" in body["error"]
