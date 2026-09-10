@@ -55,6 +55,11 @@ def run_cooldown(
         if metrics.temp_c is None:
             log.append("GPU temp unavailable (nvidia-smi not found or failed) — skipping temp wait.")
         else:
+            # clock_fn measures how long the wait has really taken, including
+            # the time metrics_fn() spends. Without one, fall back to counting
+            # intended sleep time — that is what every caller that passes a
+            # stubbed sleep_fn (the tests) relies on.
+            started_at = clock_fn() if clock_fn is not None else None
             elapsed = 0.0
             log.append(f"Start temp: {metrics.temp_c:.0f}C, target: {target_temp_c:.0f}C")
             while metrics.temp_c is not None and metrics.temp_c > target_temp_c:
@@ -62,7 +67,10 @@ def run_cooldown(
                     log.append(f"Max wait ({max_wait_seconds:.0f}s) reached at {metrics.temp_c:.0f}C — continuing anyway.")
                     break
                 sleep_fn(poll_interval_seconds)
-                elapsed += poll_interval_seconds
+                if started_at is None:
+                    elapsed += poll_interval_seconds
+                else:
+                    elapsed = clock_fn() - started_at
                 metrics = metrics_fn()
                 if metrics.temp_c is not None:
                     log.append(f"  -> {metrics.temp_c:.0f}C")
@@ -196,6 +204,7 @@ class SmartCooldownNode(_NodeBase):
             metrics_fn=poll_gpu_metrics,
             unload_fn=model_management.unload_all_models,
             cache_fn=_clear_cache,
+            clock_fn=time.monotonic,
         )
 
         notify_sound = kwargs["notify_sound"]

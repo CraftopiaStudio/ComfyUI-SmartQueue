@@ -111,3 +111,48 @@ def _make_fake_clock(elapsed):
     def clock():
         return elapsed["total"]
     return clock
+
+
+def test_max_wait_counts_real_time_when_a_clock_is_supplied():
+    # Each poll "takes" 4s of wall clock on top of the 5s sleep, so the 30s
+    # budget is spent after 4 polls, not the 6 that counting poll_interval
+    # alone would allow.
+    now = [0.0]
+
+    def clock():
+        return now[0]
+
+    def sleep(seconds):
+        now[0] += seconds + 4.0
+
+    status = run_cooldown(
+        fixed_delay_seconds=0.0,
+        wait_for_temp=True,
+        target_temp_c=65.0,
+        poll_interval_seconds=5.0,
+        max_wait_seconds=30.0,
+        unload_models_before_wait=False,
+        sleep_fn=sleep,
+        metrics_fn=lambda: GpuMetrics(80.0, 1000.0, 8000.0),
+        unload_fn=lambda: None,
+        clock_fn=clock,
+    )
+    assert "Max wait (30s) reached" in status
+    assert now[0] == 36.0
+
+
+def test_without_a_clock_the_loop_still_counts_poll_intervals():
+    sleeps = []
+    status = run_cooldown(
+        fixed_delay_seconds=0.0,
+        wait_for_temp=True,
+        target_temp_c=65.0,
+        poll_interval_seconds=5.0,
+        max_wait_seconds=30.0,
+        unload_models_before_wait=False,
+        sleep_fn=sleeps.append,
+        metrics_fn=lambda: GpuMetrics(80.0, 1000.0, 8000.0),
+        unload_fn=lambda: None,
+    )
+    assert "Max wait (30s) reached" in status
+    assert len(sleeps) == 6
