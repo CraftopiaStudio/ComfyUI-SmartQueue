@@ -440,3 +440,23 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         final_ids_by_number = sorted(self.prompt_queue.queue, key=lambda x: x[0])
         assert [item[1] for item in final_ids_by_number] == ["b", "a"]
         assert [item["prompt_id"] for item in list_queue_items(self.conn)] == ["b", "a"]
+
+
+def test_register_routes_fills_a_route_table_when_one_is_given():
+    # ComfyUI only /api-prefixes routes it finds in PromptServer.instance.routes
+    # (server.py add_routes), so registration has to be able to target that
+    # table instead of app.router.
+    conn = init_db(":memory:")
+    table = web.RouteTableDef()
+    app = web.Application()
+
+    register_routes(app, conn, AutopilotState(), AutopilotSettings(), routes=table)
+
+    registered = {(item.method, item.path) for item in table if isinstance(item, web.RouteDef)}
+    assert ("GET", "/smart_queue/status") in registered
+    assert ("POST", "/smart_queue/manual_pause") in registered
+    assert ("POST", "/smart_queue/continue/{prompt_id}") in registered
+    assert len(registered) == 12
+    # Nothing may go onto app.router as well, or aiohttp sees each path twice
+    # once core adds the table to the same app.
+    assert len(list(app.router.routes())) == 0

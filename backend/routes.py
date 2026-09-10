@@ -34,6 +34,7 @@ def register_routes(
     settings: AutopilotSettings,
     queue_hold: QueueHold | None = None,
     prompt_queue=None,
+    routes: web.RouteTableDef | None = None,
 ) -> None:
     async def get_status(request: web.Request) -> web.Response:
         metrics = state.last_metrics
@@ -194,15 +195,29 @@ def register_routes(
     async def get_pending_waits(request: web.Request) -> web.Response:
         return web.json_response({"items": list_pending()})
 
-    app.router.add_get("/smart_queue/status", get_status)
-    app.router.add_get("/smart_queue/queue", get_queue)
-    app.router.add_post("/smart_queue/reorder", post_reorder)
-    app.router.add_get("/smart_queue/history", get_history)
-    app.router.add_get("/smart_queue/settings", get_settings)
-    app.router.add_post("/smart_queue/settings", post_settings)
-    app.router.add_post("/smart_queue/continue/{prompt_id}", post_continue)
-    app.router.add_post("/smart_queue/cancel_wait/{prompt_id}", post_cancel_wait)
-    app.router.add_get("/smart_queue/pending_waits", get_pending_waits)
-    app.router.add_post("/smart_queue/manual_pause", post_manual_pause)
-    app.router.add_post("/smart_queue/rename", post_rename)
-    app.router.add_post("/smart_queue/cancel", post_cancel)
+    # (method, path, handler) rather than direct app.router calls: ComfyUI
+    # builds the /api-prefixed copy of every route by iterating
+    # PromptServer.instance.routes (server.py add_routes), which runs after
+    # custom nodes load — so registering into that table gets both the bare
+    # path the bundled JS uses and the prefixed one a reverse proxy or the
+    # frontend dev server needs. `routes=None` keeps the plain-app behaviour
+    # the tests rely on.
+    definitions = [
+        ("GET", "/smart_queue/status", get_status),
+        ("GET", "/smart_queue/queue", get_queue),
+        ("POST", "/smart_queue/reorder", post_reorder),
+        ("GET", "/smart_queue/history", get_history),
+        ("GET", "/smart_queue/settings", get_settings),
+        ("POST", "/smart_queue/settings", post_settings),
+        ("POST", "/smart_queue/continue/{prompt_id}", post_continue),
+        ("POST", "/smart_queue/cancel_wait/{prompt_id}", post_cancel_wait),
+        ("GET", "/smart_queue/pending_waits", get_pending_waits),
+        ("POST", "/smart_queue/manual_pause", post_manual_pause),
+        ("POST", "/smart_queue/rename", post_rename),
+        ("POST", "/smart_queue/cancel", post_cancel),
+    ]
+    for method, path, handler in definitions:
+        if routes is None:
+            app.router.add_route(method, path, handler)
+        else:
+            routes.route(method, path)(handler)

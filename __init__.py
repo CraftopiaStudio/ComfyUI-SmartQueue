@@ -204,6 +204,7 @@ def _init_server_integration() -> None:
         _autopilot_settings,
         queue_hold=_queue_hold,
         prompt_queue=_server.prompt_queue,
+        routes=_server.routes,
     )
 
     async def _start_autopilot_loop(app):
