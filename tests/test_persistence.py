@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from backend.persistence import (
     init_db,
@@ -300,3 +301,15 @@ def test_init_db_scrubs_secrets_left_by_an_older_version():
     assert load_held_items(conn)[0][5] == {}
     # Idempotent: a second pass has nothing left to rewrite.
     assert scrub_held_item_secrets(conn) == 0
+
+
+def test_persistence_builds_no_sql_with_f_strings_or_executescript():
+    # Identifiers cannot be parameterised, so the migration used f-strings —
+    # but scanners flag any f-string reaching execute(), and with three
+    # columns across two tables the literal form costs nothing.
+    source = (Path(__file__).resolve().parent.parent / "backend" / "persistence.py").read_text(
+        encoding="utf-8"
+    )
+    assert "executescript" not in source
+    for marker in ("ALTER TABLE {", "PRAGMA table_info({", 'f"ALTER', "f'ALTER", 'f"PRAGMA', "f'PRAGMA"):
+        assert marker not in source, f"{marker!r} still present"

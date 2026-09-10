@@ -4,56 +4,73 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS queue_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    prompt_id TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    order_index INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    prompt_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    thumbnail_path TEXT,
-    completed_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS held_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_index INTEGER NOT NULL,
-    item_json TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS manual_pause_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    paused INTEGER NOT NULL
-);
-"""
+# One statement per entry, executed individually rather than as a single
+# multi-statement script — that combined form is a flagged construct for
+# registry scanners and buys nothing here.
+_TABLES = (
+    """CREATE TABLE IF NOT EXISTS queue_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prompt_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        order_index INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prompt_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        thumbnail_path TEXT,
+        completed_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS held_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_index INTEGER NOT NULL,
+        item_json TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS manual_pause_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        paused INTEGER NOT NULL
+    )""",
+)
 
 # Columns added after the tables above already shipped (spec §29/§6/#3) —
 # CREATE TABLE IF NOT EXISTS never touches a table that already exists, so an
 # existing smart_queue.sqlite3 needs these added explicitly or it keeps
 # missing them forever.
-_ADDED_COLUMNS = {
-    "queue_items": [("started_at", "TEXT")],
-    "history": [("workflow_json", "TEXT"), ("duration_seconds", "REAL")],
+#
+# Spelled out in full rather than composed: table and column names are
+# identifiers, which SQLite parameters cannot carry, so the previous version
+# had to use f-strings — and every f-string reaching execute() reads as SQL
+# injection to a scanner. There are three of them; writing them out is free.
+_TABLE_INFO_QUERIES = {
+    "queue_items": "PRAGMA table_info(queue_items)",
+    "history": "PRAGMA table_info(history)",
 }
+
+_MIGRATIONS = (
+    ("queue_items", "started_at", "ALTER TABLE queue_items ADD COLUMN started_at TEXT"),
+    ("history", "workflow_json", "ALTER TABLE history ADD COLUMN workflow_json TEXT"),
+    ("history", "duration_seconds", "ALTER TABLE history ADD COLUMN duration_seconds REAL"),
+)
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
-    for table, columns in _ADDED_COLUMNS.items():
-        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-        for name, col_type in columns:
-            if name not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
+    existing = {
+        table: {row[1] for row in conn.execute(query)}
+        for table, query in _TABLE_INFO_QUERIES.items()
+    }
+    for table, column, statement in _MIGRATIONS:
+        if column not in existing[table]:
+            conn.execute(statement)
     conn.commit()
 
 
 def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
+    for statement in _TABLES:
+        conn.execute(statement)
     conn.commit()
     _migrate_schema(conn)
     scrub_held_item_secrets(conn)
