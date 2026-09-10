@@ -25,49 +25,36 @@ this page does not cover, or if you believe any claim here is wrong.
   an HTTP request, or contacts any host. There is no telemetry, no update
   check, and no analytics.
 - **No `eval`, `exec`, `compile`, `pickle`, `marshal`, or `__import__()`.**
-- **No HTTP endpoint spawns a process.** As of 0.1.6 there is exactly one
-  process-spawning call site in the entire package, and it is not reachable
-  from any route (see below).
-- **All data stays local**, in one SQLite file inside the extension's own
-  directory.
+- **No HTTP endpoint spawns a process.** As of 0.1.6 the package starts no
+  processes at all (see below).
+- **All data stays local**, in one SQLite file named `smart_queue.sqlite3` in
+  ComfyUI's own per-extension user directory
+  (`folder_paths.get_system_user_directory("smart_queue")`), falling back to
+  a file inside the extension's own directory when `folder_paths` is
+  unavailable. An existing legacy file at that fallback location is copied to
+  the new location on first run.
 
-## Process execution: one call site
+## Process execution: none
 
-`backend/gpu_monitor.py`, in `poll_gpu_metrics()`:
+The package starts no processes at all. GPU metrics come from NVML through
+`nvidia-ml-py`, an in-process ctypes binding onto the driver's own library
+(`backend/gpu_monitor.py`), not a subprocess call:
 
-```python
-cmd = [
-    "nvidia-smi",
-    "--query-gpu=temperature.gpu,memory.used,memory.total",
-    "--format=csv,noheader,nounits",
-]
-index = _target_gpu_index()
-if index is not None:
-    cmd += ["-i", str(index)]
+```bash
+grep -rn "subprocess" backend/
 ```
 
-That list is then handed to the standard library's process-spawning helper
-with `shell=False`, output captured, and a timeout.
+returns nothing. A machine without an NVIDIA driver, or without NVML
+available, degrades to "temperature and VRAM rules disabled" rather than
+erroring: the poll function returns empty metrics on any failure and the
+cooldown node's fail-open log line names NVML rather than a missing binary.
 
-- The argument list is a hardcoded constant. Nothing from an HTTP request, a
-  node widget, a workflow, or a file is interpolated into it.
-- The only variable element is `-i <index>`, and `_target_gpu_index()` returns
-  either `None` or an `int`: it reads `CUDA_VISIBLE_DEVICES`, takes the first
-  comma-separated entry, and returns it only if `str.isdigit()` passes.
-  Non-numeric values (for example the `GPU-<uuid>` form) return `None`.
-- `shell=False` (the default). There is no shell, so shell metacharacters have
-  no meaning even if one could get a value in.
-- It is bounded by a timeout and wrapped in a blanket `except Exception` that
-  returns empty metrics, so a machine without `nvidia-smi` degrades to
-  "temperature and VRAM rules disabled" rather than erroring.
-
-**Reachability:** called by the background autopilot poll loop, and during
-execution of the `SmartCooldownNode` when its temperature-wait option is on.
-A `/prompt` submission therefore causes it to run, but no widget value on that
-node, and no field in the submitted workflow, can influence the command line.
-The node's widgets are floats and booleans (target temperature, poll interval,
-maximum wait) that are used as numeric comparisons against the returned
-metrics.
+**Reachability:** the poll function is called by the background autopilot
+poll loop, and during execution of the `SmartCooldownNode` when its
+temperature-wait option is on. Neither call site takes an argument derived
+from an HTTP request, a node widget, a workflow, or a file: the node's
+widgets are floats and booleans (target temperature, poll interval, maximum
+wait) that are used as numeric comparisons against the returned metrics.
 
 ### Removed in 0.1.6
 
@@ -101,7 +88,7 @@ they assume the server is reachable only by its operator.
 | `POST /smart_queue/continue/{prompt_id}`, `POST /smart_queue/cancel_wait/{prompt_id}` | Releases or cancels a node waiting on a manual gate |
 | `GET /smart_queue/pending_waits` | Lists nodes currently waiting |
 
-None of them start a process, read or write a file outside the extension's own
+None of them start a process, read or write a file outside Smart Queue's own
 SQLite database, accept a filesystem path, or return file contents. Their
 worst-case effect is manipulation of queue ordering and pause state, which is
 a subset of what ComfyUI's own unauthenticated queue endpoints already allow.
@@ -111,21 +98,12 @@ a subset of what ComfyUI's own unauthenticated queue endpoints already allow.
 `backend/persistence.py` uses parameterized queries (`?` placeholders)
 everywhere that a value is involved.
 
-Two statements use f-strings, in `_migrate_schema()`:
-
-```python
-existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
-```
-
-`table`, `name`, and `col_type` come from `_ADDED_COLUMNS`, a module-level
-constant dict of literal strings. No caller passes anything in. SQLite does
-not accept bound parameters for identifiers in `PRAGMA` or `ALTER TABLE`, so
-this is the only available form.
-
 ## Filesystem
 
-- The SQLite database lives inside the extension's own directory.
+- The SQLite database lives in ComfyUI's own per-extension user directory
+  (`folder_paths.get_system_user_directory("smart_queue")`), falling back to
+  a location inside the extension's own directory when `folder_paths` is
+  unavailable.
 - `backend/sound_library.py` resolves a stored sound path back to a real file.
   It accepts only values beginning with `sounds/custom/`, rejects any value
   containing a path separator after that prefix, rejects `.` and `..`, and
@@ -140,7 +118,5 @@ this is the only available form.
 | --- | --- |
 | `python_network_operations` on `backend/persistence.py`, "Exfiltration Over C2 Channel" | Matches on the sqlite3 connect call, because the rule greps for the word "connect" followed by an opening parenthesis. It opens a local SQLite file, not a socket. |
 | `python_database_connections` on the same line | The same local SQLite file. |
-| `python_environment_manipulation` on `backend/gpu_monitor.py` | A read of the `CUDA_VISIBLE_DEVICES` environment variable, so the extension polls the same GPU ComfyUI itself uses on a multi-GPU machine. Nothing is written to the environment anywhere in the package. |
-| `python_command_injection_risk` on `backend/gpu_monitor.py` | The single `nvidia-smi` call documented above. |
 | `python_network_operations` on `web/smart_queue.js` (in versions up to 0.1.5) | Matched on a JavaScript function-binding call, because the rule greps for the word "bind" followed by an opening parenthesis and reads it as a socket bind. Rewritten in 0.1.6 to avoid the pattern. |
 | Any `urllib` import | `backend/queue_tracker.py` imports `urllib.parse.urlencode`, a pure string-formatting helper used to build the `filename=...&subfolder=...&type=output` query that ComfyUI's own thumbnail URLs use. `urllib.request` is never imported. |

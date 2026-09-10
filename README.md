@@ -4,7 +4,7 @@ GPU-aware queue autopilot for ComfyUI, plus a **Smart Cooldown & Pause** node: f
 
 ComfyUI removed its native pause button and has no built-in way to gate the queue on live GPU state. Smart Queue fills that gap: it watches your GPU (temperature, VRAM headroom, job count) and automatically pauses/resumes the queue, on top of a full persistent queue/history panel with drag-reorder, rename, search, and bulk actions.
 
-> **GPU support:** temperature- and VRAM-based autopilot need an NVIDIA GPU (`nvidia-smi`). The manual pause button, the queue/history panel, drag-reorder, and the job-count autopilot rule all work on any GPU (or CPU-only) — see [Compatibility & known limitations](#compatibility--known-limitations) for the full breakdown.
+> **GPU support:** temperature- and VRAM-based autopilot need an NVIDIA GPU and driver, read via NVML. The manual pause button, the queue/history panel, drag-reorder, and the job-count autopilot rule all work on any GPU (or CPU-only) — see [Compatibility & known limitations](#compatibility--known-limitations) for the full breakdown.
 
 ## Use Cases
 
@@ -24,7 +24,7 @@ ComfyUI removed its native pause button and has no built-in way to gate the queu
 - **Bulk actions & drag-reorder**: ctrl/shift-click to multi-select, right-click for a context menu (rename / cancel / cancel & requeue), and drag-and-drop priority reordering that actually changes ComfyUI's real execution order.
 - **Pause/resume toast notifications**: so an autopilot-triggered pause doesn't go unnoticed just because you weren't looking at the toolbar.
 - **Smart Cooldown & Pause node**: an in-graph node for per-workflow control: fixed delay, wait-for-temperature, unload models / clear VRAM cache before waiting, and a manual "wait for click" gate with on-node Continue/Cancel buttons: plus sound and popup notifications when it's done waiting.
-- **Fail-open everywhere.** No NVIDIA GPU, no `nvidia-smi`, a bad setting, an exception in the rule engine: the affected feature disables itself and logs a warning. A bug in this pack is never allowed to hang your render queue.
+- **Fail-open everywhere.** No NVIDIA GPU, no NVIDIA driver, a bad setting, an exception in the rule engine: the affected feature disables itself and logs a warning. A bug in this pack is never allowed to hang your render queue.
 
 ## Installation
 
@@ -35,7 +35,7 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/CraftopiaStudio/ComfyUI-SmartQueue.git
 ```
 
-No extra Python dependencies: it only shells out to `nvidia-smi`, which ships with any NVIDIA driver. Restart ComfyUI.
+One dependency, `nvidia-ml-py`, installed automatically by ComfyUI-Manager or `pip install -r requirements.txt`. It is a binding onto the driver's own library, so nothing is downloaded at runtime. Restart ComfyUI.
 
 ## The sidebar panel
 
@@ -72,7 +72,7 @@ The node's OPTIONS and NOTIFICATIONS sections are collapsible, so the node stays
 | `notify_popup` | off | ComfyUI popup when the node finishes waiting |
 | `notify_sound` | off | Plays a short tone (Default / Chime / Alert, or a custom file you place in `web/sounds/custom/`) |
 | `unload_models` | off | Drops model references from VRAM before waiting |
-| `clear_cache` | off | Actually reclaims that VRAM back to the OS/driver (pairs with `unload_models`: this is the step that moves the needle on `nvidia-smi`) |
+| `clear_cache` | off | Actually reclaims that VRAM back to the OS/driver (pairs with `unload_models`: this is the step that moves the needle in Task Manager or any GPU monitor) |
 | `wait_for_click` | off | Blocks after the cooldown behind on-node **▶ Continue** / **✕ Cancel** buttons |
 | `passthrough`, `passthrough_2` |: | Two independent pass-through sockets (any type) so the node can sit in-line without breaking your graph |
 
@@ -102,18 +102,18 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 
 - Everything rides on ComfyUI's existing aiohttp server: no separate REST server, no hijacking of native routes. The queue-pause mechanism is a middleware registered additively on `POST /prompt`; it's a no-op with zero overhead when autopilot is turned off.
 - State (queue, history, held items, manual pause) is kept in a local SQLite database (`smart_queue.sqlite3`), stored under ComfyUI's own `user/` directory (`folder_paths.get_system_user_directory("smart_queue")`) so it survives a restart, an extension update, or a git pull: with a one-time automatic migration from the pre-existing in-extension location if it finds one.
-- GPU metrics come from polling `nvidia-smi` in a subprocess: no NVML/pip dependency, no GPU vendor lock-in beyond what `nvidia-smi` itself requires.
+- GPU metrics come from NVML via `nvidia-ml-py`, an in-process ctypes binding onto the driver's own library: no subprocess, no GPU vendor lock-in beyond what NVML itself requires.
 
 ## Compatibility & known limitations
 
 - **ComfyUI version.** Built and tested against a current (2026) ComfyUI checkout. The autopilot and queue-hold logic read ComfyUI's in-memory `PromptQueue` directly (`get_current_queue_volatile()`, tuple-shaped queue/history entries) because ComfyUI has no stable public API for queue introspection: a future core refactor of that internal shape could break hold/reorder behavior. Smart Queue checks this shape once at startup and logs a specific warning if it no longer matches, instead of failing silently: if autopilot or the sidebar panel stop reflecting the real queue after a ComfyUI update, check the ComfyUI console log for a `[Smart Queue]` warning first.
-- **GPU vendor and selection.** NVIDIA-only (via `nvidia-smi`). On a multi-GPU machine, Smart Queue reads `CUDA_VISIBLE_DEVICES` and polls the first index listed there: set it the same way you'd set it for ComfyUI itself so both agree on which card is "the" GPU. AMD, Intel, and CPU-only installs get `nvidia-smi`-not-found: autopilot's temperature/VRAM rules disable themselves (fail-open) rather than erroring; job-count-based autopilot still works since it doesn't need GPU metrics.
+- **GPU vendor and selection.** NVIDIA-only (via NVML). On a multi-GPU machine, Smart Queue asks torch which device ComfyUI itself is running on and matches it to the NVML device by UUID, so both agree on which card is "the" GPU without either side reading an environment variable; it falls back to the first NVML device whenever torch, CUDA, or the UUID match is unavailable. AMD, Intel, and CPU-only installs have no NVML device to find: autopilot's temperature/VRAM rules disable themselves (fail-open) rather than erroring; job-count-based autopilot still works since it doesn't need GPU metrics.
 - **A custom notification sound is a manual step.** Drop your audio file into the extension's `web/sounds/custom/` folder, then type `sounds/custom/<filename>` into the node's `custom_sound_path` widget. It has to live under `web/` because a page served over http:// is not allowed to load a `file://` subresource, so a raw path from elsewhere on disk can never play. Earlier versions had a Browse button that opened a native file dialog; it was removed because it required an unauthenticated HTTP endpoint that spawns a system process, which security scanners flag. The built-in Default / Chime / Alert sounds need no setup.
 - **The cooldown node blocks its branch of the graph while waiting** (fixed delay, temperature-wait, or the manual continue/cancel gate). That's the intended behavior for a gate node, but it means a workflow shouldn't rely on other work happening on that same branch concurrently while it waits.
 
 ## Testing
 
-214 unit tests cover the autopilot rule engine, persistence, queue-hold logic, routes, and the Smart Cooldown node's frozen widget/socket order, as pure functions with no GPU or running ComfyUI instance required:
+230 unit tests cover the autopilot rule engine, persistence, queue-hold logic, routes, and the Smart Cooldown node's frozen widget/socket order, as pure functions with no GPU or running ComfyUI instance required:
 
 ```bash
 pytest tests/ -q -p no:warnings
