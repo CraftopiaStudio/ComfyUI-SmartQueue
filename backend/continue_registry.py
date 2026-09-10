@@ -14,7 +14,11 @@ try:
     )
 except ImportError:  # not running inside a real ComfyUI process (e.g. pytest)
 
-    class InterruptProcessingException(Exception):  # type: ignore[no-redef]
+    # BaseException, not Exception — matches comfy.model_management, where the
+    # base is deliberate so a stray `except Exception` cannot swallow an
+    # interrupt. A fallback that differs would make the tests pass on
+    # behaviour production does not have.
+    class InterruptProcessingException(BaseException):  # type: ignore[no-redef]
         pass
 
     def throw_exception_if_processing_interrupted() -> None:  # type: ignore[no-redef]

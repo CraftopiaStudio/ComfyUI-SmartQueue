@@ -136,3 +136,14 @@ def test_list_pending_omits_waits_that_already_resolved():
 
 def test_list_pending_is_empty_with_nothing_waiting():
     assert list_pending() == []
+
+
+def test_interrupt_exception_is_not_caught_by_except_exception():
+    # Core's InterruptProcessingException derives from BaseException
+    # (comfy/model_management.py), deliberately, so ordinary error handling
+    # cannot swallow an interrupt. The pytest fallback has to match or these
+    # tests validate behaviour production does not have.
+    from backend.continue_registry import InterruptProcessingException
+
+    assert issubclass(InterruptProcessingException, BaseException)
+    assert not issubclass(InterruptProcessingException, Exception)
