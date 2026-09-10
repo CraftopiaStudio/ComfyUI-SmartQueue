@@ -15,11 +15,14 @@ web/sounds/custom/
 docs/plans/
 docs/specs/
 docs/superpowers/
+docs/reviews/
 
 # Local Claude Code session/config data — never intended for the repo
 .claude/
 
-# Local dev-only tooling, not part of the published node package
-check_registry_status.bat
-check_registry_status_readable.ps1
-registry_status_last.txt
+# Local dev-only tooling, not part of the published node package.
+# Globbed rather than named: these get copied per-project with a suffix
+# (e.g. "check_registry_status - smartqueue.bat"), and a missed variant is
+# how internal files end up tracked.
+check_registry_status*
+registry_status_last*

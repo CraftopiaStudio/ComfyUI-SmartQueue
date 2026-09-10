@@ -53,7 +53,7 @@ def run_cooldown(
     if wait_for_temp:
         metrics = metrics_fn()
         if metrics.temp_c is None:
-            log.append("GPU temp unavailable (nvidia-smi not found or failed) — skipping temp wait.")
+            log.append("GPU temp unavailable (NVML not found or failed) — skipping temp wait.")
         else:
             # clock_fn measures how long the wait has really taken, including
             # the time metrics_fn() spends. Without one, fall back to counting

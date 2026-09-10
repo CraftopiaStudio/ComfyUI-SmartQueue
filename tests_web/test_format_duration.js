@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatDuration } from "../format_duration.js";
+import { formatDuration } from "../web/format_duration.js";
 
 test("returns empty string for null", () => {
     assert.equal(formatDuration(null), "");
