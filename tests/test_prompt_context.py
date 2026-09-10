@@ -76,3 +76,13 @@ def test_returns_none_when_no_source_is_available():
 
 def test_ignores_a_context_with_an_empty_prompt_id():
     assert resolve_prompt_id(lambda: _FakeContext(""), None, _queue()) == "from-queue"
+
+
+def test_returns_none_when_the_running_item_has_an_invalid_shape():
+    # If the queue's running item lacks a [1] index (e.g. a bare one-element
+    # tuple), extraction should fail gracefully and return None, not raise.
+    class _QueueWithInvalidShape:
+        def get_current_queue_volatile(self):
+            return (("single-element-tuple",),), []
+
+    assert resolve_prompt_id(lambda: None, None, _QueueWithInvalidShape()) is None

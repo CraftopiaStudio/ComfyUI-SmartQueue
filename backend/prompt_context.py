@@ -45,9 +45,9 @@ def resolve_prompt_id(
     if prompt_queue is not None:
         try:
             running, _queued = prompt_queue.get_current_queue_volatile()
+            if running:
+                return running[0][1]
         except Exception:
-            running = []
-        if running:
-            return running[0][1]
+            pass
 
     return None
