@@ -218,6 +218,9 @@ def register_routes(
     ]
     for method, path, handler in definitions:
         if routes is None:
-            app.router.add_route(method, path, handler)
+            # aiohttp's RouteDef.register dispatches GET to add_get, which also
+            # registers HEAD; go through the same shortcuts so a plain app gets
+            # the identical routes ComfyUI's table produces.
+            getattr(app.router, "add_" + method.lower())(path, handler)
         else:
             routes.route(method, path)(handler)

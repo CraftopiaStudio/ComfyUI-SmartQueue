@@ -460,3 +460,16 @@ def test_register_routes_fills_a_route_table_when_one_is_given():
     # Nothing may go onto app.router as well, or aiohttp sees each path twice
     # once core adds the table to the same app.
     assert len(list(app.router.routes())) == 0
+
+
+def test_register_routes_without_table_adds_head_to_get_endpoints():
+    # aiohttp's add_get registers HEAD implicitly; routes=None must use the
+    # same shortcuts so a plain app gets identical routing behaviour to
+    # ComfyUI's RouteDef dispatch.
+    conn = init_db(":memory:")
+    app = web.Application()
+
+    register_routes(app, conn, AutopilotState(), AutopilotSettings())
+
+    registered = {(r.method, r.resource.canonical) for r in app.router.routes()}
+    assert ("HEAD", "/smart_queue/status") in registered
