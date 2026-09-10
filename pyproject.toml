@@ -5,7 +5,7 @@ version = "0.1.6"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = ["nvidia-ml-py; platform_machine != 'aarch64'"]
 keywords = ["comfyui", "queue", "gpu", "nvidia", "autopilot", "cooldown", "pause", "vram", "temperature", "batch-render"]
 classifiers = [
     "Operating System :: OS Independent",

@@ -56,7 +56,7 @@ HISTORY_CLEANUP_INTERVAL = timedelta(hours=1)
 
 
 async def _async_poll_gpu_metrics():
-    # poll_gpu_metrics is a blocking subprocess call; keep it off the event loop.
+    # poll_gpu_metrics is a blocking ctypes call into NVML; keep it off the event loop.
     return await asyncio.to_thread(poll_gpu_metrics)
 
 
