@@ -152,15 +152,21 @@ def _is_autopilot_enabled() -> bool:
     return _autopilot_settings.master_enabled
 
 
-if _HAS_COMFY_SERVER:
+_server = None
+_conn = None
+
+
+def _init_server_integration() -> None:
+    global _server, _conn
+
     try:
         import folder_paths  # type: ignore[import-not-found]
         _get_system_user_directory = folder_paths.get_system_user_directory
     except (ImportError, AttributeError):
         _get_system_user_directory = None
 
-    _db_path = str(resolve_db_path(Path(__file__).parent, _get_system_user_directory))
-    _conn = init_db(_db_path)
+    db_path = str(resolve_db_path(Path(__file__).parent, _get_system_user_directory))
+    _conn = init_db(db_path)
 
     _server = PromptServer.instance
     verify_prompt_queue_shape(_server.prompt_queue)
@@ -169,14 +175,14 @@ if _HAS_COMFY_SERVER:
     # cleared on every release) — so finding rows here means the previous
     # process stopped mid-pause. Restore into QueueHold (not straight back into
     # prompt_queue) so those jobs aren't silently lost.
-    _recovered_held_items = load_held_items(_conn)
-    if _recovered_held_items:
-        _queue_hold.restore(_recovered_held_items)
-        for _item in _recovered_held_items:
-            set_queue_item_status(_conn, prompt_id=_item[1], status="held")
+    recovered_held_items = load_held_items(_conn)
+    if recovered_held_items:
+        _queue_hold.restore(recovered_held_items)
+        for item in recovered_held_items:
+            set_queue_item_status(_conn, prompt_id=item[1], status="held")
         logger.warning(
             "[Smart Queue] Restored %d held job(s) after a restart — still paused, resume manually when ready.",
-            len(_recovered_held_items),
+            len(recovered_held_items),
         )
 
     # manual_paused is persisted independently of held_items (spec §29 #11) —
@@ -185,7 +191,7 @@ if _HAS_COMFY_SERVER:
     # resume on restart even though the user deliberately paused.
     if load_manual_pause(_conn):
         _autopilot_state.set_manual_pause(True)
-        if not _recovered_held_items:
+        if not recovered_held_items:
             logger.warning(
                 "[Smart Queue] Restored manual pause after a restart — resume manually when ready."
             )
@@ -206,3 +212,17 @@ if _HAS_COMFY_SERVER:
     _server.app.on_startup.append(_start_autopilot_loop)
 
     logger.info("[Smart Queue] Loaded — autopilot + Smart Cooldown & Pause node registered.")
+
+
+if _HAS_COMFY_SERVER:
+    try:
+        _init_server_integration()
+    except Exception:
+        # Never let a backend problem take the node down with it: ComfyUI
+        # abandons the entire module on an exception here (nodes.py), so an
+        # unguarded failure would remove Smart Cooldown & Pause from the UI.
+        logger.exception(
+            "[Smart Queue] Backend failed to start — autopilot, the sidebar panel and "
+            "manual pause are disabled for this session. The Smart Cooldown & Pause node "
+            "still works."
+        )
