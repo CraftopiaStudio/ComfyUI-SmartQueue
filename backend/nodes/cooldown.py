@@ -12,6 +12,7 @@ except ImportError:
 
 from ..continue_registry import wait_for_continue
 from ..gpu_monitor import GpuMetrics, poll_gpu_metrics
+from ..prompt_context import resolve_prompt_id
 
 
 def run_cooldown(
@@ -226,13 +227,27 @@ class SmartCooldownNode(_NodeBase):
             })
 
         if kwargs["wait_for_click"]:
-            prompt_id = PromptServer.instance.last_prompt_id
-            node_id = cls.hidden.unique_id
-            PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
-                "prompt_id": prompt_id,
-                "node_id": node_id,
-            })
-            wait_for_continue(prompt_id, node_id=node_id)
-            status += " | Continued by user click."
+            try:
+                from comfy_execution.utils import get_executing_context
+            except ImportError:
+                # Predates comfy_execution.utils; resolve_prompt_id falls back
+                # to the running-queue snapshot.
+                get_executing_context = None
+
+            prompt_id = resolve_prompt_id(
+                get_executing_context,
+                PromptServer.instance,
+                PromptServer.instance.prompt_queue,
+            )
+            if prompt_id is None:
+                status += " | wait_for_click skipped: no prompt id available."
+            else:
+                node_id = cls.hidden.unique_id
+                PromptServer.instance.send_sync("smart_queue.cooldown_wait_for_click", {
+                    "prompt_id": prompt_id,
+                    "node_id": node_id,
+                })
+                wait_for_continue(prompt_id, node_id=node_id)
+                status += " | Continued by user click."
 
         return io.NodeOutput(kwargs.get("passthrough"), kwargs.get("passthrough_2"), status)
