@@ -1,3 +1,5 @@
+import json
+
 from backend.persistence import (
     init_db,
     add_queue_item,
@@ -14,6 +16,7 @@ from backend.persistence import (
     load_manual_pause,
     set_queue_item_status,
     delete_history_older_than,
+    scrub_held_item_secrets,
 )
 
 
@@ -247,3 +250,53 @@ def test_delete_history_older_than_removes_only_old_rows(tmp_path):
     assert deleted == 1
     remaining = [item["prompt_id"] for item in list_history(conn)]
     assert remaining == ["new"]
+
+
+def test_held_items_never_persist_the_sensitive_element():
+    conn = init_db(":memory:")
+    item = (1, "abc", {"graph": True}, {"client_id": "x"}, ["9"], {"auth_token_comfy_org": "s3cret"})
+    save_held_items(conn, [item])
+    raw = conn.execute("SELECT item_json FROM held_items").fetchone()["item_json"]
+    assert "auth_token_comfy_org" not in raw
+    assert "s3cret" not in raw
+
+
+def test_loaded_held_items_keep_the_six_element_shape_the_worker_requires():
+    # main.py's worker does `sensitive = item[5]` with no length guard, so a
+    # five-element tuple would raise IndexError as soon as it was released.
+    conn = init_db(":memory:")
+    item = (1, "abc", {"graph": True}, {"client_id": "x"}, ["9"], {"api_key_comfy_org": "s3cret"})
+    save_held_items(conn, [item])
+    loaded = load_held_items(conn)
+    assert len(loaded) == 1
+    assert len(loaded[0]) == 6
+    assert loaded[0][5] == {}
+    assert loaded[0][:5] == (1, "abc", {"graph": True}, {"client_id": "x"}, ["9"])
+
+
+def test_held_item_order_survives_the_round_trip():
+    conn = init_db(":memory:")
+    items = [
+        (1, "first", {}, {}, [], {}),
+        (2, "second", {}, {}, [], {}),
+        (3, "third", {}, {}, [], {}),
+    ]
+    save_held_items(conn, items)
+    assert [item[1] for item in load_held_items(conn)] == ["first", "second", "third"]
+
+
+def test_init_db_scrubs_secrets_left_by_an_older_version():
+    # 0.1.6 and earlier wrote the full six-element tuple. Upgrading must not
+    # leave a token sitting in the file until the next hold happens to
+    # overwrite it.
+    conn = init_db(":memory:")
+    leaked = json.dumps([1, "abc", {}, {}, [], {"auth_token_comfy_org": "s3cret"}])
+    conn.execute("INSERT INTO held_items (order_index, item_json) VALUES (0, ?)", (leaked,))
+    conn.commit()
+
+    assert scrub_held_item_secrets(conn) == 1
+    raw = conn.execute("SELECT item_json FROM held_items").fetchone()["item_json"]
+    assert "s3cret" not in raw
+    assert load_held_items(conn)[0][5] == {}
+    # Idempotent: a second pass has nothing left to rewrite.
+    assert scrub_held_item_secrets(conn) == 0

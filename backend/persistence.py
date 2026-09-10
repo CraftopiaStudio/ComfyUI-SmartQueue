@@ -56,6 +56,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.executescript(_SCHEMA)
     conn.commit()
     _migrate_schema(conn)
+    scrub_held_item_secrets(conn)
     return conn
 
 
@@ -163,23 +164,61 @@ def delete_history_older_than(conn: sqlite3.Connection, cutoff_iso: str) -> int:
     return cursor.rowcount
 
 
+# ComfyUI's queue tuple is (number, prompt_id, prompt, extra_data,
+# outputs_to_execute, sensitive). Element 5 holds the keys server.py
+# deliberately keeps out of history and logs (execution.SENSITIVE_EXTRA_DATA_KEYS:
+# auth_token_comfy_org, api_key_comfy_org), so it must never reach disk.
+# It cannot simply be dropped either: main.py's worker reads item[5] with no
+# length guard, so a released five-element tuple would raise IndexError.
+# Persist five, restore six with an empty dict in the slot. A job released
+# after a restart loses its API-node token, which is the correct trade — the
+# user signs in again — and no credential is ever written to the database.
+_SENSITIVE_INDEX = 5
+
+
 def save_held_items(conn: sqlite3.Connection, items: list[tuple]) -> None:
     """Replaces the entire held-items snapshot. Called after every hold/release
-    so a crash or restart mid-pause can recover exactly what was in flight —
-    items are raw PromptQueue tuples (number, prompt_id, prompt, extra_data,
-    outputs_to_execute, sensitive), JSON-serialized as-is."""
+    so a crash or restart mid-pause can recover exactly what was in flight."""
     conn.execute("DELETE FROM held_items")
     for index, item in enumerate(items):
         conn.execute(
             "INSERT INTO held_items (order_index, item_json) VALUES (?, ?)",
-            (index, json.dumps(list(item))),
+            (index, json.dumps(list(item)[:_SENSITIVE_INDEX])),
         )
     conn.commit()
 
 
 def load_held_items(conn: sqlite3.Connection) -> list[tuple]:
     rows = conn.execute("SELECT item_json FROM held_items ORDER BY order_index ASC").fetchall()
-    return [tuple(json.loads(row["item_json"])) for row in rows]
+    items: list[tuple] = []
+    for row in rows:
+        fields = json.loads(row["item_json"])[:_SENSITIVE_INDEX]
+        # Truncate-then-append rather than pad-if-short: it also neutralises a
+        # row written by 0.1.6 or earlier, which did store the real dict here.
+        fields.append({})
+        items.append(tuple(fields))
+    return items
+
+
+def scrub_held_item_secrets(conn: sqlite3.Connection) -> int:
+    """Rewrites any held_items row still carrying the sensitive element, left
+    behind by a version that persisted the full tuple. Returns the number of
+    rows rewritten. Runs at startup so an upgrade removes the credential
+    immediately instead of waiting for the next hold to overwrite it."""
+    rows = conn.execute("SELECT id, item_json FROM held_items").fetchall()
+    rewritten = 0
+    for row in rows:
+        fields = json.loads(row["item_json"])
+        if len(fields) <= _SENSITIVE_INDEX:
+            continue
+        conn.execute(
+            "UPDATE held_items SET item_json = ? WHERE id = ?",
+            (json.dumps(fields[:_SENSITIVE_INDEX]), row["id"]),
+        )
+        rewritten += 1
+    if rewritten:
+        conn.commit()
+    return rewritten
 
 
 def save_manual_pause(conn: sqlite3.Connection, paused: bool) -> None:
