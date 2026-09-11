@@ -5,6 +5,31 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-11
+
+### Added
+- `nvidia-ml-py` as the package's first dependency. GPU temperature and VRAM now come from NVML, an in-process ctypes binding onto the driver's own library, instead of a subprocess.
+- Startup scrub of the `held_items` table: any row written by an earlier version that still carries the queue tuple's `sensitive` element is rewritten without it, so upgrading removes the credential immediately rather than waiting for the next pause to overwrite it.
+
+### Removed
+- The `nvidia-smi` subprocess call in `backend/gpu_monitor.py`, and with it the last place in the package where a node widget on the unauthenticated `/prompt` endpoint could cause a process to be spawned, which is the shape the Comfy Registry bans under `policy-v0.2`. 0.1.6 removed the route-shaped instance; this removes the node-shaped one.
+- The `CUDA_VISIBLE_DEVICES` environment read that came with it. On a multi-GPU machine Smart Queue now asks torch which device ComfyUI is using and matches it to the NVML device by UUID, falling back to the first device.
+- The f-string-composed `ALTER TABLE` and `PRAGMA table_info` statements in the schema migration, and `executescript` in `init_db`. Table and column names are identifiers, which SQLite parameters cannot carry, so the previous form was necessary rather than careless. There are only three columns across two tables, though, and every f-string reaching `execute()` reads as SQL injection to a scanner.
+
+### Changed
+- `/api/prompt` is now gated while paused, not just `/prompt`. ComfyUI registers every route twice and the bundled frontend calls only the prefixed form, so clicking Run during a pause previously queued and executed normally; only jobs already in the queue when the pause began were held.
+- Routes are registered on `PromptServer.instance.routes` rather than directly on the app router, so ComfyUI generates the `/api/smart_queue/...` copies alongside the bare paths. Existing URLs are unchanged. This is what a setup that only forwards `/api`, such as a reverse proxy or the frontend dev server, needs in order to reach these endpoints at all. The bundled panel still requests the bare paths itself, so making the panel work in that setup is a separate change.
+- The GET endpoints answer HEAD on both registration paths. aiohttp's route table implies HEAD for a GET, but the direct-registration path used a lower-level call that does not, so the two paths produced subtly different routing.
+- The Smart Cooldown node reads the executing `prompt_id` from `comfy_execution`'s execution context, falling back to `PromptServer.last_prompt_id` and then the running queue. The old attribute works, but it is never declared on `PromptServer` (it exists only because `main.py`'s worker loop assigns it), so it is now a safety net rather than the only source. If none of the three can answer, the click-wait is skipped and says so in the node's status instead of failing the prompt. The resolver never raises: a queue snapshot in an unexpected shape resolves to nothing rather than sending an error into node execution.
+- `run_cooldown`'s `max_wait_seconds` is measured against a monotonic clock instead of by counting intended sleep time, so a slow metrics poll no longer makes the wait overshoot.
+- The frontend test moved from `web/tests/` to `tests_web/`. ComfyUI globs `**/*.js` under the web directory and the frontend imports every match, so a test importing `node:test` logged an extension-load error on every page load.
+- `SECURITY.md` now describes where the database actually lives: ComfyUI's per-extension user directory, with the extension's own folder as fallback. It had claimed the extension directory outright since the file was written.
+
+### Fixed
+- A failure while starting the backend (read-only user directory, locked database, a changed `PromptQueue` API) no longer removes the Smart Cooldown & Pause node from the UI. ComfyUI abandons a pack's entire module if its `__init__.py` raises, so an unguarded import-time failure took the node down with autopilot; the integration now runs inside a try/except and logs what it lost.
+- Comfy.org API credentials are no longer written to disk. Held queue items persisted the whole queue tuple, including the `sensitive` element that ComfyUI deliberately keeps out of history and logs (`auth_token_comfy_org`, `api_key_comfy_org`).
+- The pytest fallback for `InterruptProcessingException` derives from `BaseException`, matching `comfy.model_management`. Deriving from `Exception` meant a stray `except Exception` could swallow an interrupt under test but not in production.
+
 ## [0.1.6] - 2026-09-07
 
 ### Added
