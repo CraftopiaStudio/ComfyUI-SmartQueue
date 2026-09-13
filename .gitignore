@@ -20,6 +20,9 @@ docs/reviews/
 # Local Claude Code session/config data — never intended for the repo
 .claude/
 
+# Working design source file, not part of the published node package.
+docs/images/iconSQ.svg
+
 # Local dev-only tooling, not part of the published node package.
 # Globbed rather than named: these get copied per-project with a suffix
 # (e.g. "check_registry_status - smartqueue.bat"), and a missed variant is

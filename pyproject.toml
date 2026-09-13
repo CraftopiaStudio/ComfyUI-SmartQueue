@@ -5,7 +5,7 @@ version = "0.1.7"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-dependencies = ["nvidia-ml-py; platform_machine != 'aarch64'"]
+dependencies = ["nvidia-ml-py>=12.535; platform_machine != 'aarch64'"]
 keywords = ["comfyui", "queue", "gpu", "nvidia", "autopilot", "cooldown", "pause", "vram", "temperature", "batch-render"]
 classifiers = [
     "Operating System :: OS Independent",
@@ -19,4 +19,4 @@ Issues = "https://github.com/CraftopiaStudio/ComfyUI-SmartQueue/issues"
 [tool.comfy]
 PublisherId = "craftopiastudio"
 DisplayName = "ComfyUI-SmartQueue"
-Icon = "https://avatars.githubusercontent.com/u/132409508?v=4"
+Icon = "https://raw.githubusercontent.com/CraftopiaStudio/ComfyUI-SmartQueue/master/assets/icon.png"
