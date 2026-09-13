@@ -5,6 +5,39 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-14
+
+Completes the work 0.1.7 started. 0.1.7 made the backend reachable at its
+`/api` paths but left the panel asking for the bare ones, so the setups that
+fix was for still could not use it. The version number is a minor bump rather
+than another patch because 0.1.7 repaired a pause that did not work for anyone
+on the bundled frontend and stopped credentials being written to disk, and a
+patch number undersold that.
+
+### Added
+- `assets/icon.png`, the pack's own icon, replacing the CraftopiaStudio GitHub
+  avatar that stood in for it since the first registry listing.
+- `tests_web/test_api_paths.js`, which reads the panel sources and fails if any
+  module calls `fetch()` directly, points a `src`/`href` at a root-relative URL,
+  or stops importing `api`. A convention is easy to break by writing one more
+  plain `fetch`, so it is pinned the same way the cooldown node's socket order
+  is pinned in `tests/test_cooldown_schema_order.py`.
+
+### Changed
+- Every backend call in `web/smart_queue.js` and `web/smart_queue_node.js` now
+  goes through `api.fetchApi()` instead of a root-relative `fetch()`, and the
+  history thumbnail's `/view` source through `api.apiURL()`. Both apply the
+  frontend's own `api_base` and the `/api` prefix, so the panel works behind a
+  reverse proxy that forwards only `/api`, under the frontend dev server, and
+  on a subpath deployment. On a plain localhost install nothing changes.
+- `nvidia-ml-py` carries a `>=12.535` floor. It was unpinned, which left a
+  future breaking release free to reach an install without this package
+  shipping anything. The floor is deliberately low so it does not fight another
+  pack over the same dependency.
+- The registry `Icon` URL points at `master`. It was copied from CraftKit,
+  whose default branch is `main`, so as written it resolved to a 404 on every
+  branch this repository has.
+
 ## [0.1.7] - 2026-09-11
 
 ### Added
