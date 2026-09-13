@@ -300,7 +300,7 @@ app.registerExtension({
             if (!state) return;
             pending.delete(String(node.id));
             setNodeWaiting(node, false);
-            fetch(`/smart_queue/continue/${encodeURIComponent(state.promptId)}`, { method: "POST" }).catch((err) => {
+            api.fetchApi(`/smart_queue/continue/${encodeURIComponent(state.promptId)}`, { method: "POST" }).catch((err) => {
                 console.error("[Smart Queue] continue request failed:", err);
             });
         }, { serialize: false });
@@ -312,7 +312,7 @@ app.registerExtension({
             if (!state) return;
             pending.delete(String(node.id));
             setNodeWaiting(node, false);
-            fetch(`/smart_queue/cancel_wait/${encodeURIComponent(state.promptId)}`, { method: "POST" }).catch((err) => {
+            api.fetchApi(`/smart_queue/cancel_wait/${encodeURIComponent(state.promptId)}`, { method: "POST" }).catch((err) => {
                 console.error("[Smart Queue] cancel request failed:", err);
             });
         }, { serialize: false });
@@ -417,7 +417,7 @@ app.registerExtension({
         const reconcilePendingWaits = async () => {
             let items;
             try {
-                const resp = await fetch("/smart_queue/pending_waits");
+                const resp = await api.fetchApi("/smart_queue/pending_waits");
                 ({ items } = await resp.json());
             } catch (err) {
                 return; // transient network/server hiccup — try again next tick

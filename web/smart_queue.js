@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 import { formatDuration } from "./format_duration.js";
 
 app.registerExtension({
@@ -112,7 +113,7 @@ app.registerExtension({
                 free_vram_on_pause: app.extensionManager.setting.get("SmartQueue.FreeVramOnPause"),
             };
             try {
-                await fetch("/smart_queue/settings", {
+                await api.fetchApi("/smart_queue/settings", {
                     method: "POST",
                     body: JSON.stringify(payload),
                     headers: { "Content-Type": "application/json" },
@@ -200,7 +201,7 @@ app.registerExtension({
             if (isPaused) {
                 let waiting = 0;
                 try {
-                    const res = await fetch("/smart_queue/queue");
+                    const res = await api.fetchApi("/smart_queue/queue");
                     const data = await res.json();
                     // Filter out the currently-running item(s) using the same
                     // "running" status overlay get_queue already applies
@@ -256,7 +257,7 @@ app.registerExtension({
             btn.addEventListener("click", async () => {
                 manualPaused = !manualPaused;
                 try {
-                    await fetch("/smart_queue/manual_pause", {
+                    await api.fetchApi("/smart_queue/manual_pause", {
                         method: "POST",
                         body: JSON.stringify({ paused: manualPaused }),
                         headers: { "Content-Type": "application/json" },
@@ -282,7 +283,7 @@ app.registerExtension({
             const btn = ensureToolbarPauseButton();
             if (!btn) return;
             try {
-                const res = await fetch("/smart_queue/status");
+                const res = await api.fetchApi("/smart_queue/status");
                 const data = await res.json();
                 manualPaused = data.manual_paused;
                 // Icon stays the pause glyph regardless of state — swapping to a
@@ -377,7 +378,7 @@ app.registerExtension({
                         if (!value || value === currentName) { restore(originalText); return; }
                         restore(value);
                         try {
-                            await fetch("/smart_queue/rename", {
+                            await api.fetchApi("/smart_queue/rename", {
                                 method: "POST",
                                 body: JSON.stringify({ prompt_id: promptId, name: value }),
                                 headers: { "Content-Type": "application/json" },
@@ -536,7 +537,7 @@ app.registerExtension({
                     selectedPromptIds.clear();
                     updateSelectionBar();
                     try {
-                        const res = await fetch("/smart_queue/cancel", {
+                        const res = await api.fetchApi("/smart_queue/cancel", {
                             method: "POST",
                             body: JSON.stringify({ prompt_ids, requeue }),
                             headers: { "Content-Type": "application/json" },
@@ -565,7 +566,7 @@ app.registerExtension({
 
                 async function refreshStatus() {
                     try {
-                        const res = await fetch("/smart_queue/status");
+                        const res = await api.fetchApi("/smart_queue/status");
                         const data = await res.json();
                         const statusEl = panel.querySelector(".smart-queue-status");
                         statusEl.textContent = data.is_paused
@@ -594,7 +595,7 @@ app.registerExtension({
                     try {
                         const q = panel.querySelector("#smart-queue-search").value.trim();
                         const url = q ? `/smart_queue/queue?name=${encodeURIComponent(q)}` : "/smart_queue/queue";
-                        const res = await fetch(url);
+                        const res = await api.fetchApi(url);
                         const data = await res.json();
                         const listEl = panel.querySelector("#smart-queue-list");
                         listEl.innerHTML = "";
@@ -697,7 +698,7 @@ app.registerExtension({
                                 let ids = data.items.map((i) => i.prompt_id);
                                 if (panel.querySelector("#smart-queue-search").value.trim()) {
                                     try {
-                                        const fullRes = await fetch("/smart_queue/queue");
+                                        const fullRes = await api.fetchApi("/smart_queue/queue");
                                         ids = (await fullRes.json()).items.map((i) => i.prompt_id);
                                     } catch (err) {
                                         console.error("[Smart Queue] reorder aborted, could not read the unfiltered queue:", err);
@@ -713,7 +714,7 @@ app.registerExtension({
                                 if (toIdx === -1) return;
                                 remaining.splice(toIdx, 0, ...movingIds);
                                 try {
-                                    await fetch("/smart_queue/reorder", {
+                                    await api.fetchApi("/smart_queue/reorder", {
                                         method: "POST",
                                         body: JSON.stringify({ ordered_prompt_ids: remaining }),
                                         headers: { "Content-Type": "application/json" },
@@ -746,7 +747,7 @@ app.registerExtension({
                     try {
                         const q = panel.querySelector("#smart-queue-history-search").value.trim();
                         const url = q ? `/smart_queue/history?name=${encodeURIComponent(q)}` : "/smart_queue/history";
-                        const res = await fetch(url);
+                        const res = await api.fetchApi(url);
                         const data = await res.json();
                         // Rebuilding the list re-creates every <video> thumb from
                         // scratch, which restarts its frame load and shows up as
@@ -794,7 +795,7 @@ app.registerExtension({
                                 const isVideo = /\.(mp4|webm|mov|mkv|avi)$/i.test(filename);
                                 const media = document.createElement(isVideo ? "video" : "img");
                                 media.className = "smart-queue-thumb";
-                                media.src = `/view?${item.thumbnail_path}`;
+                                media.src = api.apiURL(`/view?${item.thumbnail_path}`);
                                 if (isVideo) {
                                     media.muted = true;
                                     media.loop = true;
