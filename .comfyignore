@@ -11,3 +11,12 @@ node_modules/
 *.log
 .DS_Store
 *.sqlite3
+
+# Local Claude Code session/config data, not part of the published node package.
+.claude/
+
+# Local superpowers scratch, not part of the published node package.
+.superpowers/
+
+# User-picked notification sounds, copied in by backend/sound_library.py.
+web/sounds/custom/
