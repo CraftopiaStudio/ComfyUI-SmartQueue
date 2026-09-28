@@ -125,7 +125,7 @@ Pure frontend logic (currently `formatDuration`) has automated tests via Node's 
 node --test tests_web/test_format_duration.js
 ```
 
-The rest of the frontend (the panel, drag-reorder, the node's widgets, notifications) is verified by hand against a running ComfyUI instance: see `docs/specs/2026-08-28-smart-queue-design.md` for the full history of what's been built and verified, section by section.
+The rest of the frontend (the panel, drag-reorder, the node's widgets, notifications) is verified by hand against a running ComfyUI instance.
 
 ## License
 
