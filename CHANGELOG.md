@@ -5,6 +5,19 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-28
+
+### Fixed
+- `.comfyignore` had drifted behind `.gitignore`: it excluded `docs/` but not
+  `.claude/`, `.superpowers/`, or `web/sounds/custom/`. A Registry publish would
+  have shipped `.claude/settings.local.json` (local session data) inside the
+  package. All three are now excluded the same way `.gitignore` already excludes
+  them.
+- Removed a dangling README reference to `docs/specs/2026-08-28-smart-queue-design.md`.
+  That file was never part of this repo's tracked history (`docs/` is gitignored
+  here) and has since moved to the project's private work repo, so the link never
+  resolved for anyone who cloned this repository.
+
 ## [0.2.0] - 2026-09-14
 
 Completes the work 0.1.7 started. 0.1.7 made the backend reachable at its
