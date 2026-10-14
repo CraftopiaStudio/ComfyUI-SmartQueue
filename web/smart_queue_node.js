@@ -283,12 +283,9 @@ app.registerExtension({
         const notifyToastWidget = byName("notify_toast");
         const waitForClickWidget = byName("wait_for_click");
 
-        // There used to be a "📁 Browse sound file" button here, backed by a
-        // native file dialog on the Python side. Removed: it meant an
-        // unauthenticated HTTP route spawning a PowerShell/osascript/zenity
-        // process, which is the shape the Comfy Registry bans under
-        // policy-v0.2. A custom sound is now a manual step — drop the file in
-        // web/sounds/custom/ and type sounds/custom/<name> into the widget.
+        // No Browse button for the custom sound: a native file dialog needs an
+        // HTTP route that spawns a process, which the Comfy Registry bans.
+        // custom_sound_path is a dropdown of web/sounds/custom/ instead.
 
         // Plain default litegraph button — no custom draw/computeSize, copied
         // straight from CraftKit's own "▶ Run Batch" (js/smart_batch_resize.js),

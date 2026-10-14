@@ -175,6 +175,15 @@ def list_history(
     return [dict(row) for row in rows]
 
 
+def recent_job_durations(conn: sqlite3.Connection, limit: int = 20) -> list[float]:
+    rows = conn.execute(
+        "SELECT duration_seconds FROM history WHERE duration_seconds IS NOT NULL "
+        "ORDER BY completed_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [row["duration_seconds"] for row in rows]
+
+
 def delete_history_older_than(conn: sqlite3.Connection, cutoff_iso: str) -> int:
     cursor = conn.execute("DELETE FROM history WHERE completed_at < ?", (cutoff_iso,))
     conn.commit()

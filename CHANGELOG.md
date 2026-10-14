@@ -5,6 +5,32 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-14
+
+### Added
+- Time left in the panel status: `Running  ·  ~14m left`. Every unfinished job
+  counts as the median duration of the last 20 finished jobs, and a running job
+  only counts the part it has not spent yet. Median rather than mean, so one
+  long upscale in the history does not inflate every estimate. It covers the
+  whole queue regardless of the search box, is hidden while paused, and stays
+  blank until at least one job has a recorded duration. Served as a new
+  `eta_seconds` field on the existing `/smart_queue/status` endpoint; no new
+  route.
+
+### Changed
+- `custom_sound_path` on Smart Cooldown & Pause is a dropdown of the audio
+  files in `web/sounds/custom/` instead of a free text field, the same way
+  LoadImage lists the input folder. Drop a file in, press R to refresh node
+  definitions, and pick it. The widget keeps its name and position, so saved
+  workflows load unchanged, and values saved before the dropdown (an empty
+  string or `sounds/custom/<name>`) still pass validation and still play.
+  ComfyUI's own range and list checks stay in force on every other input.
+
+### Fixed
+- A stale `.comfyignore` comment claimed `backend/sound_library.py` copies
+  user-picked files into the package folder. It does not, and has not since the
+  Browse button was removed.
+
 ## [0.2.1] - 2026-09-28
 
 ### Fixed

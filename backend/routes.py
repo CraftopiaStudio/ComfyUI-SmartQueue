@@ -3,6 +3,7 @@ a native ComfyUI route."""
 
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 from aiohttp import web
 
@@ -12,6 +13,7 @@ from .continue_registry import list_pending, signal_cancel, signal_continue
 from .persistence import (
     list_history,
     list_queue_items,
+    recent_job_durations,
     remove_queue_item,
     rename_queue_item,
     reorder_queue_items,
@@ -24,6 +26,7 @@ from .queue_hold import (
     reorder_pending_queue,
     requeue_item_at_back,
 )
+from .queue_eta import estimate_remaining_seconds
 from .queue_hold_sync import sync_queue_hold
 
 
@@ -36,8 +39,25 @@ def register_routes(
     prompt_queue=None,
     routes: web.RouteTableDef | None = None,
 ) -> None:
+    def running_prompt_ids() -> set[str]:
+        if prompt_queue is None:
+            return set()
+        try:
+            running, _queued = prompt_queue.get_current_queue_volatile()
+            return {job[1] for job in running}
+        except Exception:
+            return set()
+
     async def get_status(request: web.Request) -> web.Response:
         metrics = state.last_metrics
+        # Unfiltered on purpose: the panel's queue list follows its search box,
+        # the time left does not.
+        eta_seconds = estimate_remaining_seconds(
+            list_queue_items(conn),
+            running_prompt_ids(),
+            recent_job_durations(conn),
+            datetime.now(timezone.utc),
+        )
         return web.json_response({
             "is_paused": state.effective_paused,
             "reasons": list(state.effective_reasons),
@@ -46,6 +66,7 @@ def register_routes(
             "temp_c": metrics.temp_c if metrics else None,
             "vram_used_mb": metrics.vram_used_mb if metrics else None,
             "vram_total_mb": metrics.vram_total_mb if metrics else None,
+            "eta_seconds": eta_seconds,
         })
 
     async def post_manual_pause(request: web.Request) -> web.Response:
@@ -89,15 +110,10 @@ def register_routes(
         # shows "pending" in the DB (untouched, no extra write on every
         # tick) but the panel can tell it apart from a job that's actually
         # waiting behind the pause gate.
-        if prompt_queue is not None:
-            try:
-                running, _queued = prompt_queue.get_current_queue_volatile()
-                running_ids = {job[1] for job in running}
-            except Exception:
-                running_ids = set()
-            for item in items:
-                if item["prompt_id"] in running_ids:
-                    item["status"] = "running"
+        running_ids = running_prompt_ids()
+        for item in items:
+            if item["prompt_id"] in running_ids:
+                item["status"] = "running"
         return web.json_response({"items": items})
 
     async def post_reorder(request: web.Request) -> web.Response:

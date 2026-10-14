@@ -19,7 +19,7 @@ ComfyUI removed its native pause button and has no built-in way to gate the queu
 
 - **Autopilot**: three independent, opt-in rules that pause the queue when your GPU gets too hot, VRAM gets too tight, or too many jobs have run back-to-back. Each has hysteresis (a resume threshold below the pause threshold) so it never flaps. Never interrupts a job that's already running: it only holds back what hasn't started yet.
 - **Manual pause**: one click in the toolbar. Holds every not-yet-running job out of ComfyUI's own queue (not just new submissions) and puts it back in the same order on resume. Survives a ComfyUI restart.
-- **Persistent queue & history panel** (left sidebar): survives restarts, shows readable job names (read from the workflow itself, no extra node needed), thumbnails in history with click-to-restore, per-job duration, and a live GPU temp/VRAM readout (hidden automatically if you already have Crystools installed, so you don't get two gauges).
+- **Persistent queue & history panel** (left sidebar): survives restarts, shows readable job names (read from the workflow itself, no extra node needed), thumbnails in history with click-to-restore, per-job duration, an estimate of the time left for the whole queue, and a live GPU temp/VRAM readout (hidden automatically if you already have Crystools installed, so you don't get two gauges).
 - **Rename, filter/search, auto-archive**: double-click to rename a job, search box above each list, and automatic history cleanup after N days (configurable, off by default).
 - **Bulk actions & drag-reorder**: ctrl/shift-click to multi-select, right-click for a context menu (rename / cancel / cancel & requeue), and drag-and-drop priority reordering that actually changes ComfyUI's real execution order.
 - **Pause/resume toast notifications**: so an autopilot-triggered pause doesn't go unnoticed just because you weren't looking at the toolbar.
@@ -39,7 +39,7 @@ One dependency, `nvidia-ml-py`, installed automatically by ComfyUI-Manager or `p
 
 ## The sidebar panel
 
-Open it from the left toolbar icon (**Smart Queue: GPU autopilot + render queue**). It shows two lists: **Pending/Running** and **History**: each with its own search box, plus a status row with the live GPU readout and a shortcut into **Settings → Smart Queue**. The toolbar also gets its own pause button (next to Run), highlighted blue while paused:
+Open it from the left toolbar icon (**Smart Queue: GPU autopilot + render queue**). It shows two lists: **Pending/Running** and **History**: each with its own search box, plus a status row with the estimated time left (the median of your recent job durations times what is still queued), the live GPU readout and a shortcut into **Settings → Smart Queue**. The toolbar also gets its own pause button (next to Run), highlighted blue while paused:
 
 <img src="docs/images/toolbar_pause_button.png" alt="Smart Queue toolbar pause button, highlighted blue while paused" width="420">
 
@@ -108,7 +108,7 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 
 - **ComfyUI version.** Built and tested against a current (2026) ComfyUI checkout. The autopilot and queue-hold logic read ComfyUI's in-memory `PromptQueue` directly (`get_current_queue_volatile()`, tuple-shaped queue/history entries) because ComfyUI has no stable public API for queue introspection: a future core refactor of that internal shape could break hold/reorder behavior. Smart Queue checks this shape once at startup and logs a specific warning if it no longer matches, instead of failing silently: if autopilot or the sidebar panel stop reflecting the real queue after a ComfyUI update, check the ComfyUI console log for a `[Smart Queue]` warning first.
 - **GPU vendor and selection.** NVIDIA-only (via NVML). On a multi-GPU machine, Smart Queue asks torch which device ComfyUI itself is running on and matches it to the NVML device by UUID, so both agree on which card is "the" GPU without either side reading an environment variable; it falls back to the first NVML device whenever torch, CUDA, or the UUID match is unavailable. AMD, Intel, and CPU-only installs have no NVML device to find: autopilot's temperature/VRAM rules disable themselves (fail-open) rather than erroring; job-count-based autopilot still works since it doesn't need GPU metrics.
-- **A custom notification sound is a manual step.** Drop your audio file into the extension's `web/sounds/custom/` folder, then type `sounds/custom/<filename>` into the node's `custom_sound_path` widget. It has to live under `web/` because a page served over http:// is not allowed to load a `file://` subresource, so a raw path from elsewhere on disk can never play. Earlier versions had a Browse button that opened a native file dialog; it was removed because it required an unauthenticated HTTP endpoint that spawns a system process, which security scanners flag. The built-in Default / Chime / Alert sounds need no setup.
+- **A custom notification sound needs one manual step.** Drop your audio file (wav, mp3, ogg, flac, m4a, aac, opus or webm) into the extension's `web/sounds/custom/` folder, press R in ComfyUI to refresh node definitions, then pick it from the node's `custom_sound_path` dropdown. It has to live under `web/` because a page served over http:// is not allowed to load a `file://` subresource, so a raw path from elsewhere on disk can never play. There is no Browse button, because a native file dialog needs an HTTP endpoint that spawns a system process, which security scanners flag. The built-in Default / Chime / Alert sounds need no setup.
 - **The cooldown node blocks its branch of the graph while waiting** (fixed delay, temperature-wait, or the manual continue/cancel gate). That's the intended behavior for a gate node, but it means a workflow shouldn't rely on other work happening on that same branch concurrently while it waits.
 
 ## Testing
@@ -119,7 +119,7 @@ Both reference a placeholder checkpoint: swap the **Load Checkpoint** node for y
 pytest tests/ -q -p no:warnings
 ```
 
-Pure frontend logic (currently `formatDuration`) has automated tests via Node's built-in test runner, no npm dependency required:
+Pure frontend logic (currently `formatDuration` and `formatEta`) has automated tests via Node's built-in test runner, no npm dependency required:
 
 ```bash
 node --test tests_web/test_format_duration.js

@@ -10,6 +10,7 @@ from backend.persistence import (
     rename_queue_item,
     mark_completed,
     mark_queue_item_started,
+    recent_job_durations,
     list_history,
     save_held_items,
     load_held_items,
@@ -313,3 +314,16 @@ def test_persistence_builds_no_sql_with_f_strings_or_executescript():
     assert "executescript" not in source
     for marker in ("ALTER TABLE {", "PRAGMA table_info({", 'f"ALTER', "f'ALTER", 'f"PRAGMA', "f'PRAGMA"):
         assert marker not in source, f"{marker!r} still present"
+
+
+def test_recent_job_durations_newest_first_skipping_unknown(tmp_path):
+    conn = init_db(str(tmp_path / "t.sqlite3"))
+    conn.execute(
+        "INSERT INTO history (prompt_id, name, duration_seconds, completed_at) VALUES "
+        "('a', 'a', 10.0, '2026-10-01T00:00:00'), "
+        "('b', 'b', NULL, '2026-10-02T00:00:00'), "
+        "('c', 'c', 30.0, '2026-10-03T00:00:00'), "
+        "('d', 'd', 20.0, '2026-10-04T00:00:00')"
+    )
+
+    assert recent_job_durations(conn, limit=2) == [20.0, 30.0]

@@ -60,6 +60,25 @@ class TestSmartQueueRoutes(AioHTTPTestCase):
         assert "GPU too hot" in body["reasons"]
 
     @unittest_run_loop
+    async def test_status_has_no_eta_before_any_job_finished(self):
+        add_queue_item(self.conn, prompt_id="a", name="Job A")
+        resp = await self.client.get("/smart_queue/status")
+        body = await resp.json()
+        assert body["eta_seconds"] is None
+
+    @unittest_run_loop
+    async def test_status_eta_counts_the_whole_queue_not_a_search(self):
+        self.conn.execute(
+            "INSERT INTO history (prompt_id, name, duration_seconds, completed_at) "
+            "VALUES ('old', 'old', 60.0, '2026-10-01T00:00:00')"
+        )
+        add_queue_item(self.conn, prompt_id="a", name="Portrait")
+        add_queue_item(self.conn, prompt_id="b", name="Landscape")
+        resp = await self.client.get("/smart_queue/status")
+        body = await resp.json()
+        assert body["eta_seconds"] == 120.0
+
+    @unittest_run_loop
     async def test_queue_lists_items_in_order(self):
         add_queue_item(self.conn, prompt_id="a", name="First")
         add_queue_item(self.conn, prompt_id="b", name="Second")

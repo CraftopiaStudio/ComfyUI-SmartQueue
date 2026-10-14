@@ -18,5 +18,5 @@ node_modules/
 # Local superpowers scratch, not part of the published node package.
 .superpowers/
 
-# User-picked notification sounds, copied in by backend/sound_library.py.
+# Notification sounds users drop in themselves; never part of the package.
 web/sounds/custom/

@@ -1,5 +1,8 @@
+import inspect
+
 from backend.gpu_monitor import GpuMetrics
-from backend.nodes.cooldown import run_cooldown
+from backend.nodes.cooldown import SmartCooldownNode, pick_notify_sound, run_cooldown
+from backend.sound_library import NO_CUSTOM_SOUND, custom_sounds_dir
 
 
 def test_fixed_delay_is_applied():
@@ -156,3 +159,54 @@ def test_without_a_clock_the_loop_still_counts_poll_intervals():
     )
     assert "Max wait (30s) reached" in status
     assert len(sleeps) == 6
+
+
+def _drop_sound(root, name="beep.wav"):
+    folder = custom_sounds_dir(root)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_bytes(b"RIFF")
+
+
+def test_custom_sound_from_the_dropdown_goes_to_the_browser_as_a_web_path(tmp_path):
+    root = tmp_path / "web"
+    _drop_sound(root)
+
+    assert pick_notify_sound("Custom...", "beep.wav", root=root) == ("Custom...", "sounds/custom/beep.wav", None)
+
+
+def test_custom_sound_saved_in_the_old_path_form_still_plays(tmp_path):
+    root = tmp_path / "web"
+    _drop_sound(root)
+
+    assert pick_notify_sound("Custom...", "sounds/custom/beep.wav", root=root)[1] == "sounds/custom/beep.wav"
+
+
+def test_missing_custom_sound_falls_back_to_default_and_says_why(tmp_path):
+    choice, path, warning = pick_notify_sound("Custom...", "gone.wav", root=tmp_path / "web")
+
+    assert (choice, path) == ("Default", "")
+    assert "gone.wav" in warning
+
+
+def test_custom_choice_with_none_selected_says_no_file_set(tmp_path):
+    _choice, _path, warning = pick_notify_sound("Custom...", NO_CUSTOM_SOUND, root=tmp_path / "web")
+
+    assert "no file set" in warning
+
+
+def test_builtin_choices_ignore_the_custom_widget(tmp_path):
+    assert pick_notify_sound("Chime", "beep.wav", root=tmp_path / "web") == ("Chime", "", None)
+
+
+def test_validate_inputs_only_takes_over_the_sound_dropdown():
+    # ComfyUI skips its own list/min/max checks for exactly the inputs this
+    # signature names, and for every input once it takes **kwargs.
+    spec = inspect.getfullargspec(SmartCooldownNode.validate_inputs)
+
+    assert spec.args[1:] == ["custom_sound_path"]
+    assert spec.varkw is None
+
+
+def test_validate_inputs_accepts_values_saved_before_the_dropdown():
+    assert SmartCooldownNode.validate_inputs(custom_sound_path="") is True
+    assert SmartCooldownNode.validate_inputs(custom_sound_path="sounds/custom/beep.wav") is True

@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { formatDuration } from "./format_duration.js";
+import { formatDuration, formatEta } from "./format_duration.js";
 
 app.registerExtension({
     name: "SmartQueue.Panel",
@@ -569,9 +569,11 @@ app.registerExtension({
                         const res = await api.fetchApi("/smart_queue/status");
                         const data = await res.json();
                         const statusEl = panel.querySelector(".smart-queue-status");
+                        // No time left while paused: the clock only starts again on resume.
+                        const eta = data.is_paused ? "" : formatEta(data.eta_seconds);
                         statusEl.textContent = data.is_paused
                             ? `Paused — ${data.reasons.join("; ")}`
-                            : "Running";
+                            : eta ? `Running  ·  ${eta} left` : "Running";
                         statusEl.classList.toggle("smart-queue-paused", data.is_paused);
 
                         if (!hasCrystools) {

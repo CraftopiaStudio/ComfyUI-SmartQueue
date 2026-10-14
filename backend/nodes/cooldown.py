@@ -13,6 +13,12 @@ except ImportError:
 from ..continue_registry import wait_for_continue
 from ..gpu_monitor import GpuMetrics, poll_gpu_metrics
 from ..prompt_context import resolve_prompt_id
+from ..sound_library import (
+    NO_CUSTOM_SOUND,
+    list_custom_sounds,
+    resolve as resolve_custom_sound,
+    to_web_relative,
+)
 
 
 def run_cooldown(
@@ -81,6 +87,24 @@ def run_cooldown(
     return " | ".join(log) if log else "No wait configured."
 
 
+def pick_notify_sound(choice: str, custom_value: str, root=None) -> tuple[str, str, str | None]:
+    """Settle which sound the browser plays: (choice, web path, status warning).
+
+    Resolved here rather than left to the browser: a failed <audio> load falls
+    back to the default tone silently, which is indistinguishable from the
+    custom sound working. Downgrading to "Default" up front makes the fallback
+    deliberate and lets the node say why in its status output.
+    """
+    if choice != "Custom...":
+        return choice, "", None
+
+    path = resolve_custom_sound(custom_value, root=root)
+    if path is None:
+        detail = custom_value if custom_value and custom_value != NO_CUSTOM_SOUND else "no file set"
+        return "Default", "", f"Custom sound unavailable ({detail}), played the default tone instead."
+    return choice, to_web_relative(path), None
+
+
 # Node class must stay importable even when comfy_api isn't installed (e.g. under
 # pytest, outside a real ComfyUI process) so `from .backend.nodes.cooldown import
 # SmartCooldownNode` in __init__.py never breaks the module-load smoke test.
@@ -133,13 +157,16 @@ class SmartCooldownNode(_NodeBase):
                 # is "Custom..."): io.Schema always sorts optional inputs after
                 # every required one, which would silently kick this to the end
                 # of the widget list regardless of declaration order.
-                io.String.Input(
+                # Listed fresh on every schema build, so a file dropped into the
+                # folder shows up after the frontend refreshes node definitions.
+                io.Combo.Input(
                     "custom_sound_path",
-                    default="",
+                    options=[NO_CUSTOM_SOUND, *list_custom_sounds()],
+                    default=NO_CUSTOM_SOUND,
                     tooltip=(
                         "Put your audio file in the extension's web/sounds/custom/ folder, "
-                        "then type sounds/custom/<filename> here. It has to live under web/ "
-                        "because the browser cannot load a file:// path from an http:// page."
+                        "press R in ComfyUI to refresh, then pick it here. It has to live under "
+                        "web/ because the browser cannot load a file:// path from an http:// page."
                     ),
                 ),
                 # --- OPTIONS group: the occasional toggles, collapsed by
@@ -182,6 +209,16 @@ class SmartCooldownNode(_NodeBase):
         )
 
     @classmethod
+    def validate_inputs(cls, custom_sound_path):
+        # Saved workflows hold values the dropdown does not list: "" or
+        # "sounds/custom/<name>" from before it existed, or a file since
+        # deleted. ComfyUI would reject those with "Value not in list" even
+        # with notify_sound off; pick_notify_sound already turns any of them
+        # into the default tone plus a status line. Naming the one input here
+        # keeps ComfyUI's own checks on every other input.
+        return True
+
+    @classmethod
     def execute(cls, **kwargs):
         import gc
 
@@ -210,21 +247,14 @@ class SmartCooldownNode(_NodeBase):
         notify_sound = kwargs["notify_sound"]
         notify_toast = kwargs["notify_toast"]
         sound_choice = kwargs["notify_sound_choice"]
-        custom_sound_path = kwargs.get("custom_sound_path", "")
+        custom_sound_path = ""
 
-        # Resolve the custom sound here rather than letting the browser discover
-        # it's unplayable: a failed <audio> load falls back to the default tone
-        # silently, which is indistinguishable from the custom sound working.
-        # Downgrading to "Default" up front makes the fallback deliberate and
-        # lets the node say why in its status output (§8 promised this warning).
-        if notify_sound and sound_choice == "Custom...":
-            from ..sound_library import resolve as resolve_custom_sound
-
-            if resolve_custom_sound(custom_sound_path) is None:
-                detail = custom_sound_path or "no file set"
-                status += f" | Custom sound unavailable ({detail}) — played the default tone instead."
-                sound_choice = "Default"
-                custom_sound_path = ""
+        if notify_sound:
+            sound_choice, custom_sound_path, warning = pick_notify_sound(
+                sound_choice, kwargs.get("custom_sound_path", "")
+            )
+            if warning:
+                status += f" | {warning}"
 
         if notify_sound or notify_toast:
             PromptServer.instance.send_sync("smart_queue.cooldown_notify", {
