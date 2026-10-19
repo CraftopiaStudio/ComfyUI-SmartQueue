@@ -5,6 +5,8 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-20
+
 ### Security
 - The sound value on Smart Cooldown & Pause is now matched against the list of
   audio files in `web/sounds/custom/` instead of being joined onto the folder
