@@ -83,6 +83,41 @@ def test_resolve_rejects_traversal_in_bare_names(tmp_path, value):
     assert resolve(value, root=tmp_path / "web") is None
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "C:beep.wav",
+        f"{WEB_SUBDIR}/C:beep.wav",
+        "beep.wav:stream",
+        "//server/share/beep.wav",
+        "\\\\server\\share\\beep.wav",
+        "C:\\beep.wav",
+        "/beep.wav",
+    ],
+)
+def test_resolve_only_accepts_names_the_dropdown_lists(tmp_path, value):
+    # A drive-qualified name replaces the base in a pathlib join, so these must
+    # be rejected before any filesystem check, even if such a file exists.
+    root = tmp_path / "web"
+    _custom_sound(root)
+
+    assert resolve(value, root=root) is None
+
+
+def test_resolve_matches_names_case_insensitively_like_the_filesystem(tmp_path):
+    root = tmp_path / "web"
+    _custom_sound(root, "Beep.wav")
+
+    assert resolve("beep.WAV", root=root) == custom_sounds_dir(root) / "Beep.wav"
+
+
+def test_resolve_ignores_files_that_are_not_listed(tmp_path):
+    root = tmp_path / "web"
+    _custom_sound(root, "notes.txt")
+
+    assert resolve("notes.txt", root=root) is None
+
+
 def test_web_relative_path_is_what_the_browser_resolves_against_web(tmp_path):
     root = tmp_path / "web"
     path = _custom_sound(root)

@@ -57,6 +57,11 @@ def resolve(value: str, root: Path | None = None) -> Path | None:
     form that saved workflows from before the dropdown still carry. Anything
     else resolves to None, including absolute paths, which the browser could
     never play anyway.
+
+    The value comes from a workflow, so it is untrusted text. It is never joined
+    onto a path: it is matched against the directory listing and the listed
+    name is returned. A joined name such as `C:x.wav` would replace the base
+    directory on Windows. Matching ignores case because the filesystem does.
     """
     if not value:
         return None
@@ -66,12 +71,14 @@ def resolve(value: str, root: Path | None = None) -> Path | None:
     if name.startswith(prefix):
         name = name[len(prefix):]
 
-    # No traversal, no nesting: this dir is flat by construction.
-    if not name or "/" in name or name in (".", "..", NO_CUSTOM_SOUND):
+    if not name or name == NO_CUSTOM_SOUND:
         return None
 
-    candidate = custom_sounds_dir(root) / name
-    return candidate if candidate.is_file() else None
+    wanted = name.casefold()
+    for listed in list_custom_sounds(root):
+        if listed.casefold() == wanted:
+            return custom_sounds_dir(root) / listed
+    return None
 
 
 def to_web_relative(path: Path) -> str:

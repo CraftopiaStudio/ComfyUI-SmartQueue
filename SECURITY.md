@@ -94,8 +94,8 @@ was a hardcoded string constant and the endpoint was restricted to loopback
 callers with an `Origin`-vs-`Host` check, but an unauthenticated route that
 spawns a process is a shape worth removing rather than defending. It is gone,
 together with `backend/native_dialog.py`. Setting a custom sound is now a
-manual step: place the file in `web/sounds/custom/` and type
-`sounds/custom/<filename>` into the node's widget.
+manual step: place the file in `web/sounds/custom/` and pick it in the node's
+widget, which lists that folder.
 
 ## HTTP endpoints
 
@@ -182,13 +182,17 @@ trade.
   (`folder_paths.get_system_user_directory("smart_queue")`), falling back to
   a location inside the extension's own directory when `folder_paths` is
   unavailable.
-- `backend/sound_library.py` resolves a stored sound path back to a real file.
-  It accepts only values beginning with `sounds/custom/`, rejects any value
-  containing a path separator after that prefix, rejects `.` and `..`, and
-  returns `None` for anything that is not an existing file directly inside
-  that one flat directory. Absolute paths, including the ones stored by
-  pre-0.1.0 builds, resolve to `None`.
-- No endpoint accepts a path from the caller.
+- `backend/sound_library.py` turns the `custom_sound_path` value into a real
+  file. That value is workflow input and is treated as untrusted text, since a
+  workflow can be submitted to ComfyUI by anyone who can reach its prompt
+  endpoint. The value is never joined onto a path. After an optional
+  `sounds/custom/` prefix is removed, it is compared, ignoring case, with the
+  listing of the audio files in `web/sounds/custom/`, and only a name that
+  appears in that listing resolves. Drive-qualified names, stream suffixes,
+  network paths, absolute paths, separators and traversal all fail because
+  they are not in the listing. Nothing in this module opens or reads a file.
+- No Smart Queue endpoint accepts a path from the caller. The one workflow
+  input that names a file is the sound value above.
 
 ## Tests
 

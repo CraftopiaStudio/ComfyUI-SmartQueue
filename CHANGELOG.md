@@ -5,6 +5,15 @@ All notable changes to Smart Queue are documented here. Format based on
 
 ## [Unreleased]
 
+### Security
+- The sound value on Smart Cooldown & Pause is now matched against the list of
+  audio files in `web/sounds/custom/` instead of being joined onto the folder
+  path and checked for existence. On Windows a name with a drive prefix replaces
+  the base folder in a path join, so the old check could be pointed at a file
+  outside the folder; it only ever reported whether the file existed, never its
+  contents. Names that are not in the list, including every path form, now
+  resolve to the default tone. Matching ignores case, as the filesystem does.
+
 ## [0.2.2] - 2026-10-14
 
 ### Added
